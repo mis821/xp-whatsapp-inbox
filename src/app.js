@@ -801,7 +801,7 @@ function json(data, status) {
 // ===================================================================
 // Entry points
 // ===================================================================
-export function makeWorker(inboxHtml, userScript) {
+export function makeWorker(inboxHtml, userScript, coreScript) {
   return {
     async fetch(req, env, ctx) {
       const url = new URL(req.url);
@@ -818,6 +818,12 @@ export function makeWorker(inboxHtml, userScript) {
           return new Response('ok');
         }
         if (p === '/health') return new Response('ok');
+        // The in-page half of the WhatsApp Web script; the loader fetches it with the webhook token.
+        if (p === '/wa-core.js' && req.method === 'GET') {
+          const token = await secretSetting(env, 'webhook_token');
+          if (!safeEq(url.searchParams.get('token') || '', token)) return new Response('forbidden', { status: 401 });
+          return new Response(String(coreScript || ''), { headers: Object.assign({ 'Content-Type': 'text/javascript; charset=utf-8' }, SEC_HEADERS) });
+        }
         if (p === '/favicon.ico') return new Response(null, { status: 204 });
         if (p === '/login' && req.method === 'POST') return login(req, env);
         if (p === '/logout') {

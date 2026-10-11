@@ -25,7 +25,7 @@ globalThis.fetch = async (url, opts = {}) => {
 };
 
 const env = { DB: makeD1(ROOT + 'migrations'), WASENDER_API_KEY: 'k', DASHBOARD_PASSWORD: 'secret-pass' };
-const worker = makeWorker('<html>INBOX</html>', fs.readFileSync(ROOT + 'src/wa-sync.user.js', 'utf8'));
+const worker = makeWorker('<html>INBOX</html>', fs.readFileSync(ROOT + 'src/wa-sync.user.js', 'utf8'), fs.readFileSync(ROOT + 'src/wa-core.js', 'utf8'));
 const pending = [];
 const ctx = { waitUntil: p => pending.push(p) };
 const req = (path, init = {}) => worker.fetch(new Request('https://wa.example.workers.dev' + path, init), env, ctx);
@@ -163,6 +163,9 @@ console.log('parse:', JSON.stringify(parseKaam('#todo Maruti Paper - rate confir
 assert.match(await (await req('/wa-sync.user.js')).text(), /password/, 'script needs login');
 const us = await (await req('/wa-sync.user.js', { headers: { cookie } })).text();
 assert.ok(us.includes(setup.webhookUrl) && !us.includes('__ENDPOINT__'), 'endpoint baked in');
+const coreUrl = new URL(setup.webhookUrl.replace('/webhook?', '/wa-core.js?'));
+assert.equal((await req('/wa-core.js?token=nope')).status, 401, 'core needs the token');
+assert.match(await (await req(coreUrl.pathname + coreUrl.search)).text(), /WPP\.loader \|\| WPP\.webpack/, 'core served with token');
 const before2 = env.DB.raw.prepare('SELECT COUNT(*) c FROM messages').get().c;
 const webRows = [];
 for (let i = 0; i < 450; i++) webRows.push({ id: 'W' + i, t: now - i * 60000, chat: 'G' + (100 + (i % 30)) + '@g.us', chat_name: 'Web Group ' + (i % 30),

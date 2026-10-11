@@ -31,6 +31,23 @@ const TASK_TYPES = ['Payment', 'Material', 'Follow-up', 'Reply', 'Other'];
 const TEAMS = ['Khud', 'Accounts', 'Store', 'Purchase', 'Production', 'Quality', 'Dispatch'];
 const KAAM_RE = /^\s*#(kaam|task|todo)\b/i;
 
+// What makes a message "zaroori". Checked on the text as sent (before @digits are turned into names).
+const NEERAJ_RE = /neeraj|niraj|नीरज/i;
+// A payment being asked about: the word in its usual spellings and typos, money-transfer terms,
+// and the Hindi words. Deliberately not "amount", "due" or "invoice" alone — those turn up in
+// every dispatch and quality message too.
+const PAYMENT_RE = /\b(payments?|paymnt|paymt|pymt|pymnt|pmt|paiment|payement|pay|paise|paisa|outstanding|advance|neft|rtgs|imps|cheque|chq|ledger)\b|भुगतान|पेमेंट|पैसे/i;
+
+// Reasons a message belongs on the Zaroori list ([] = it does not). Only other people's messages.
+export function flagReasons(r) {
+  if (r.from_me) return [];
+  const out = [];
+  if (r.is_group && r.tag) out.push('tag');
+  if (NEERAJ_RE.test(r.text || '')) out.push('neeraj');
+  if (PAYMENT_RE.test(r.text || '')) out.push('payment');
+  return out;
+}
+
 // ===================================================================
 // Small helpers
 // ===================================================================
@@ -263,7 +280,17 @@ export async function ingest(env, rows, waitUntil) {
     if (!r.is_group && !c.name) c.name = r.chat_name || (!r.from_me ? r.sender_name : '') || '';
   }
 
+  const flags = [];
+  for (const r of rows) {
+    const why = flagReasons(r);
+    if (why.length) flags.push({ msg_id: r.id, chat: r.chat, t: r.t, reasons: why.join(' ') });
+  }
+
   await env.DB.batch([
+    env.DB.prepare(
+      "INSERT OR IGNORE INTO flags (msg_id, chat, t, reasons) SELECT json_extract(value, '$.msg_id'), " +
+      "json_extract(value, '$.chat'), json_extract(value, '$.t'), json_extract(value, '$.reasons') FROM json_each(?)"
+    ).bind(JSON.stringify(flags)),
     env.DB.prepare('INSERT OR IGNORE INTO messages (' + MSG_COLS.join(', ') + ') SELECT ' +
       MSG_COLS.map(c => "json_extract(value, '$." + c + "')").join(', ') + ' FROM json_each(?)').bind(data),
     // Senders the payload left nameless get their name from the contact list.
@@ -463,10 +490,38 @@ async function getInbox(env, daysArg) {
   const last = await env.DB.prepare('SELECT MAX(received_at) AS r FROM messages').first();
   return {
     now, since, days, me: { name: sf.me.name }, lastArrival: (last && last.r) || 0, captured: 0,
-    chats, callsToday, tasks: await tasksOut(env), groups,
+    chats, callsToday, flags: await flagsOut(env, sf.nums, today), tasks: await tasksOut(env), groups,
     teamGroups: JSON.parse((await getSetting(env, 'team_groups')) || '{}'),
     keywords: KEYWORDS, types: TASK_TYPES, teams: TEAMS
   };
+}
+
+// Every open Zaroori item, whatever its age (up to the 30 days messages are kept), plus what was
+// ticked off today so a mistaken tick can be undone.
+async function flagsOut(env, nums, today) {
+  const r = await env.DB.prepare(
+    'SELECT f.msg_id, f.chat, f.t, f.reasons, f.done_at, m.from_me, m.sender, m.sender_phone, m.sender_name, m.type, m.text, ' +
+    'c.name AS chat_name FROM flags f JOIN messages m ON m.id = f.msg_id LEFT JOIN chats c ON c.jid = f.chat ' +
+    'WHERE f.done_at IS NULL OR f.done_at >= ? ORDER BY f.t DESC LIMIT 1500').bind(today).all();
+  const names = await mentionNames(env, r.results, nums);
+  return r.results.map(f => {
+    const isGroup = /@g\.us$/.test(f.chat);
+    const text = niceMentions(f.text, names, nums);
+    return {
+      id: f.msg_id, jid: f.chat, chat: f.chat_name || (isGroup ? 'Group …' + f.chat.split('@')[0].slice(-6) : prettyJid(f.chat)),
+      group: isGroup, t: f.t, reasons: String(f.reasons).split(' ').filter(Boolean), done: f.done_at || 0,
+      who: f.sender_name || (f.sender_phone ? '+' + f.sender_phone : prettyJid(bare(f.sender))),
+      type: f.type || '', text: text.length > TEXT_MAX ? text.slice(0, TEXT_MAX) + '…' : text
+    };
+  });
+}
+
+async function markFlags(env, ids, done) {
+  const list = (Array.isArray(ids) ? ids : [ids]).map(String).filter(Boolean);
+  if (!list.length) return true;
+  await env.DB.prepare('UPDATE flags SET done_at = ? WHERE msg_id IN (SELECT value FROM json_each(?))')
+    .bind(done ? Date.now() : null, JSON.stringify(list)).run();
+  return true;
 }
 
 // The messages of one chat, newest MSGS_PER_CHAT within the window, oldest first.
@@ -659,17 +714,9 @@ export function briefText(d, kind) {
   const dueToday = open.filter(t => !t.due || t.due === today);
   const dueTomorrow = open.filter(t => t.due === tomorrow);
   const doneToday = d.tasks.filter(t => t.status === 'Done' && t.doneAt && dayKey(t.doneAt) === today);
-  const pend = d.chats.filter(c => c.pending > 0).sort((a, b) => b.lastPending.t - a.lastPending.t);
-  const unseen = d.chats.filter(c => !c.muted && c.unseen > 0).sort((a, b) => b.unseen - a.unseen);
-  const unseenMsgs = unseen.reduce((s, c) => s + c.unseen, 0);
   const dm = key => key ? key.slice(8, 10) + '-' + key.slice(5, 7) : '';
   const taskLine = t => '• ' + (t.party ? '*' + t.party + '* — ' : '') + t.kaam.slice(0, 120) +
     (t.team && t.team !== 'Khud' ? ' [' + t.team + ']' : '') + (t.due && t.due < today ? ' (due ' + dm(t.due) + ')' : '');
-  const pendLine = c => {
-    const p = c.lastPending;
-    return '• *' + c.name + '* — ' + (p.who ? p.who + ': ' : '') + (p.call ? '📞 call' : '"' + p.text.slice(0, 80) + '"') +
-      (c.pending > 1 ? ' (+' + (c.pending - 1) + ')' : '');
-  };
   const section = (title, items, fn, cap) => {
     if (!items.length) return [];
     const out = ['', title + ' (' + items.length + ')'];
@@ -677,21 +724,23 @@ export function briefText(d, kind) {
     if (items.length > cap) out.push('…aur ' + (items.length - cap));
     return out;
   };
+  const openFlags = (d.flags || []).filter(f => !f.done);
+  const fcount = k => openFlags.filter(f => f.reasons.indexOf(k) !== -1).length;
+  const flagLine = f => '• *' + f.chat + '* — ' + f.who + ': "' + f.text.replace(/\s+/g, ' ').slice(0, 80) + '"';
+  const zaroori = openFlags.length
+    ? ['', '⭐ *Zaroori baaki: ' + openFlags.length + '* (@tag ' + fcount('tag') + ' · Neeraj ' + fcount('neeraj') + ' · payment ' + fcount('payment') + ')']
+        .concat(openFlags.slice(0, 12).map(flagLine), openFlags.length > 12 ? ['…aur ' + (openFlags.length - 12)] : [])
+    : [];
   let L = [];
   if (kind === 'morning') {
     L.push('☀️ *Good morning — aaj ke kaam* (' + dm(today) + ')');
-    L = L.concat(section('⏰ *Overdue*', overdue, taskLine, 10), section('📌 *Aaj*', dueToday, taskLine, 15),
-      section('🔔 *Reply baaki*', pend, pendLine, 10));
-    if (!overdue.length && !dueToday.length && !pend.length) L.push('', 'Sab clear hai ✅');
+    L = L.concat(zaroori, section('⏰ *Overdue*', overdue, taskLine, 10), section('📌 *Aaj*', dueToday, taskLine, 15));
+    if (!overdue.length && !dueToday.length && !openFlags.length) L.push('', 'Sab clear hai ✅');
   } else {
     L.push('🌆 *Aaj ka hisaab* — ' + dm(today));
     L.push('✅ Aaj poore hue: ' + doneToday.length + '   📝 Khule kaam: ' + open.length);
-    L = L.concat(section('⏰ *Overdue*', overdue, taskLine, 10), section('📌 *Aaj ke baaki*', dueToday, taskLine, 10),
-      section('🗓️ *Kal ke liye*', dueTomorrow, taskLine, 10), section('🔔 *Tag / direct — reply baaki*', pend, pendLine, 10));
-    if (unseenMsgs) {
-      L.push('', '💬 Bina dekhe: ' + unseenMsgs + ' messages, ' + unseen.length + ' chats');
-      L.push(unseen.slice(0, 6).map(c => c.name + ' (' + c.unseen + ')').join(', '));
-    }
+    L = L.concat(zaroori, section('⏰ *Overdue*', overdue, taskLine, 10), section('📌 *Aaj ke baaki*', dueToday, taskLine, 10),
+      section('🗓️ *Kal ke liye*', dueTomorrow, taskLine, 10));
   }
   return L.join('\n');
 }
@@ -729,6 +778,7 @@ async function getSetup(env, origin) {
 // ===================================================================
 const RPC = {
   getWaInbox: (env, a) => getInbox(env, a[0]),
+  markWaFlags: (env, a) => markFlags(env, a[0], a[1] !== false),
   getWaChat: (env, a) => getChat(env, a[0], a[1]),
   searchWa: (env, a) => searchChats(env, a[0], a[1]),
   markWaChatsSeen: (env, a) => markSeen(env, a[0]),
@@ -868,7 +918,10 @@ export function makeWorker(inboxHtml, userScript, coreScript) {
       if (cron === '0 4 * * *' && briefsOn) await sendBrief(env, 'morning');
       else if (cron === '30 13 * * *' && briefsOn) await sendBrief(env, 'evening');
       else if (cron === '0 21 * * *') {
-        await env.DB.prepare('DELETE FROM messages WHERE received_at < ?').bind(Date.now() - KEEP_DAYS * DAY).run();
+        const cut = Date.now() - KEEP_DAYS * DAY;
+        // Anything still open on the Zaroori list is kept, however old — it is somebody's unpaid bill.
+        await env.DB.prepare('DELETE FROM messages WHERE received_at < ? AND id NOT IN (SELECT msg_id FROM flags WHERE done_at IS NULL)').bind(cut).run();
+        await env.DB.prepare('DELETE FROM flags WHERE done_at IS NOT NULL AND done_at < ?').bind(cut).run();
         await syncNames(env, true);
       } else if (cron === '0 */6 * * *') {
         await syncNames(env, false);

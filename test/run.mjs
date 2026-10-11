@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { makeD1 } from './d1.mjs';
-import { makeWorker, dayKey, parseKaam, shortParty, briefText } from '../src/app.js';
+import { makeWorker, dayKey, parseKaam, shortParty, briefText, flagReasons } from '../src/app.js';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const ME_PN = '919999900000', ME_LID = '123450000000001';
@@ -182,6 +182,42 @@ assert.equal(by('Web Group 5').pending, 1, 'LID mention from WhatsApp Web is a t
 assert.equal(by('Web Group 5').preview.who, 'Ramesh Jyoti', 'sender named from contacts');
 assert.equal(env.DB.raw.prepare("SELECT name FROM chats WHERE jid = 'G105@g.us'").get().name, 'Web Group 5');
 assert.ok((await rpc('getWaSetup')).webSync > 0);
+
+// Zaroori: tag in a group, "Neeraj" anywhere, payment asked — stays until ticked, whatever happens on WhatsApp.
+assert.deepEqual(flagReasons({ is_group: 1, tag: 1, text: 'Neeraj ji payment kab?' }), ['tag', 'neeraj', 'payment']);
+assert.deepEqual(flagReasons({ is_group: 0, tag: 1, text: 'hello' }), [], 'a 1:1 hello is not zaroori');
+assert.deepEqual(flagReasons({ is_group: 1, tag: 0, text: 'pymt kara do sir' }), ['payment']);
+assert.deepEqual(flagReasons({ is_group: 1, tag: 0, text: 'नीरज जी का भुगतान' }), ['neeraj', 'payment']);
+assert.deepEqual(flagReasons({ is_group: 1, tag: 0, text: 'dispatch ho gaya, payment terms as per PO', from_me: 1 }), [], 'own messages never');
+assert.deepEqual(flagReasons({ is_group: 1, tag: 0, text: 'gaadi gate pe hai' }), []);
+await post({ event: 'xp.rows', data: { rows: [
+  { id: 'Z1', t: now - 50000, chat: 'G1@g.us', sender: '777@lid', text: 'Sir 3 bill ka payment pending hai' },
+  { id: 'Z2', t: now - 40000, chat: 'G3@g.us', sender: '555@lid', text: 'Neeraj sir se baat ho gayi' },
+  { id: 'Z3', t: now - 30000, chat: 'G3@g.us', sender: '555@lid', text: 'material aa gaya' },
+  { id: 'Z4', t: now - 20000, chat: 'G3@g.us', from_me: 1, text: 'ok thik hai payment kal' }] } });
+d = await rpc('getWaInbox', 2);
+const zf = id => d.flags.find(f => f.id === id);
+assert.deepEqual(zf('Z1').reasons, ['payment']);
+assert.deepEqual(zf('Z2').reasons, ['neeraj']);
+assert.ok(!zf('Z3') && !zf('Z4'), 'plain and own messages are not flagged');
+assert.ok(zf('M1') && zf('M1').reasons.indexOf('tag') !== -1, 'earlier group tag is on the list');
+assert.equal(zf('Z2').done, 0, 'replying on WhatsApp (Z4) does not clear it');
+await rpc('markWaFlags', ['Z1', 'Z2'], true);
+d = await rpc('getWaInbox', 2);
+assert.ok(zf('Z1').done > 0, 'ticked today stays visible as done');
+await rpc('markWaFlags', ['Z2'], false);
+d = await rpc('getWaInbox', 2);
+assert.equal(zf('Z2').done, 0, 'undo');
+// redelivery does not reopen a ticked item
+await post({ event: 'xp.rows', data: { rows: [{ id: 'Z1', t: now - 50000, chat: 'G1@g.us', sender: '777@lid', text: 'Sir 3 bill ka payment pending hai' }] } });
+d = await rpc('getWaInbox', 2);
+assert.ok(zf('Z1').done > 0, 'redelivery keeps it done');
+assert.match(briefText(d, 'evening'), /Zaroori baaki/);
+// nightly prune keeps old messages that are still open on the list
+env.DB.raw.prepare("UPDATE messages SET received_at = ? WHERE id IN ('Z2', 'Z3')").run(now - 40 * 86400000);
+await worker.scheduled({ cron: '0 21 * * *' }, env, ctx);
+assert.ok(env.DB.raw.prepare("SELECT 1 FROM messages WHERE id = 'Z2'").get(), 'open flag kept');
+assert.ok(!env.DB.raw.prepare("SELECT 1 FROM messages WHERE id = 'Z3'").get(), 'plain old message pruned');
 
 // speed: 30k messages over 260 chats, then one inbox load
 const ins = env.DB.raw.prepare('INSERT INTO messages (id, received_at, t, event, chat, is_group, from_me, sender, sender_name, type, text, tag) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');

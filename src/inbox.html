@@ -169,6 +169,21 @@
            border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 60; max-width: 90vw; text-align: center; }
   .toast.show { opacity: 1; }
   [hidden] { display: none !important; }
+  .viewnote { font-size: 12px; color: var(--sub); line-height: 1.5; margin: 0 0 10px; }
+  .zg { background: var(--card); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 10px; overflow: hidden; }
+  .zg-h { display: flex; gap: 8px; align-items: center; padding: 9px 12px; background: var(--soft); }
+  .zg-h b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .zi { padding: 9px 12px; border-top: 1px solid var(--line); }
+  .zi.done { opacity: .55; }
+  .zi.done .zt { text-decoration: line-through; }
+  .zi-h { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 12px; }
+  .zt { margin: 4px 0 6px; line-height: 1.45; word-break: break-word; }
+  .rz { font-size: 10px; font-weight: 800; border-radius: 4px; padding: 1px 6px; text-transform: uppercase; letter-spacing: .3px; }
+  .rz.tag { background: #fef3c7; color: #92400e; } .rz.neeraj { background: #ede9fe; color: #5b21b6; } .rz.payment { background: #dcfce7; color: #166534; }
+  @media (prefers-color-scheme: dark) {
+    .rz.tag { background: #3a2c0c; color: #fcd34d; } .rz.neeraj { background: #2b1f47; color: #c4b5fd; } .rz.payment { background: #14321f; color: #86efac; }
+  }
+  .t-neeraj { background: #6d28d9; } .t-pay { background: var(--green); }
 </style>
 </head>
 <body>
@@ -191,14 +206,26 @@
   <div class="tiles" id="tiles"></div>
 
   <nav class="views">
-    <button data-view="inbox" class="active">💬 Inbox</button>
+    <button data-view="zaroori" class="active">⭐ Zaroori<span class="badge" id="b-zar"></span></button>
     <button data-view="kaam">✅ Mere Kaam<span class="badge" id="b-kaam"></span></button>
     <button data-view="review">🌆 Shaam ka hisaab</button>
+    <button data-view="inbox">💬 Sab chats</button>
     <button data-view="setup">⚙️ Setup</button>
   </nav>
 
   <!-- ============ INBOX ============ -->
-  <section id="v-inbox">
+  <!-- ============ ZAROORI ============ -->
+  <section id="v-zaroori">
+    <p class="viewnote">Sirf ye 3: jahan <b>aapko tag</b> kiya, jahan <b>"Neeraj"</b> likha hai, aur jahan <b>payment</b> ki baat hai.
+      Ye tab tak yahin rahenge jab tak aap <b>✓ Ho gaya</b> nahi dabate — WhatsApp pe padh lene se nahi hatenge.</p>
+    <div class="toolbar">
+      <input type="search" id="zq" placeholder="Group, naam ya message dhundho…">
+    </div>
+    <div class="chips" id="zchips"></div>
+    <div id="zlist"><div class="empty">Load ho raha hai…</div></div>
+  </section>
+
+  <section id="v-inbox" hidden>
     <div id="pend"></div>
     <div class="toolbar">
       <input type="search" id="q" placeholder="Group, naam ya message dhundho…">
@@ -390,6 +417,7 @@
   function renderAll() {
     renderBanner();
     renderTiles();
+    renderZaroori();
     renderInbox();
     renderKaam();
     renderReview();
@@ -411,7 +439,15 @@
   }
 
   function counts() {
-    var c = { pend: 0, unseen: 0, unseenChats: 0, calls: (D.callsToday || []).length, over: 0, today: 0 };
+    var c = { pend: 0, unseen: 0, unseenChats: 0, calls: (D.callsToday || []).length, over: 0, today: 0,
+              fopen: 0, ftag: 0, fneeraj: 0, fpay: 0 };
+    (D.flags || []).forEach(function (f) {
+      if (f.done) return;
+      c.fopen++;
+      if (f.reasons.indexOf('tag') !== -1) c.ftag++;
+      if (f.reasons.indexOf('neeraj') !== -1) c.fneeraj++;
+      if (f.reasons.indexOf('payment') !== -1) c.fpay++;
+    });
     var t = todayKey(), dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
     D.chats.forEach(function (x) {
       if (x.pending) c.pend++;
@@ -428,12 +464,92 @@
   function renderTiles() {
     var c = counts();
     $('tiles').innerHTML =
-      '<button class="tile t-pend" data-act="filter" data-f="reply"><span class="n">' + c.pend + '</span><span class="l">🔔 Reply baaki</span><span class="s">tag + direct</span></button>' +
-      '<button class="tile t-new" data-act="filter" data-f="unseen"><span class="n">' + c.unseen + '</span><span class="l">💬 Bina dekhe</span><span class="s">' + c.unseenChats + ' chats</span></button>' +
+      '<button class="tile t-pend" data-act="zf" data-f="tag"><span class="n">' + c.ftag + '</span><span class="l">@ Mujhe tag</span><span class="s">baaki</span></button>' +
+      '<button class="tile t-neeraj" data-act="zf" data-f="neeraj"><span class="n">' + c.fneeraj + '</span><span class="l">👤 Neeraj</span><span class="s">baaki</span></button>' +
+      '<button class="tile t-pay" data-act="zf" data-f="payment"><span class="n">' + c.fpay + '</span><span class="l">💰 Payment</span><span class="s">baaki</span></button>' +
       '<button class="tile t-over" data-act="view" data-v="kaam"><span class="n">' + c.over + '</span><span class="l">⏰ Overdue kaam</span><span class="s">time nikal gaya</span></button>' +
-      '<button class="tile t-today" data-act="view" data-v="kaam"><span class="n">' + c.today + '</span><span class="l">📌 Aaj ke kaam</span><span class="s">khule</span></button>' +
-      '<button class="tile t-call" data-act="filter" data-f="calls"><span class="n">' + c.calls + '</span><span class="l">📞 Aaj ke calls</span><span class="s">WhatsApp calls</span></button>';
+      '<button class="tile t-today" data-act="view" data-v="kaam"><span class="n">' + c.today + '</span><span class="l">📌 Aaj ke kaam</span><span class="s">khule</span></button>';
     $('b-kaam').textContent = (c.over + c.today) || '';
+    $('b-zar').textContent = c.fopen || '';
+  }
+
+  // ---------- ZAROORI ----------
+  var ZF = 'all', ZQ = '';
+  var REASON_LABEL = { tag: '@ Tag', neeraj: 'Neeraj', payment: 'Payment' };
+  function flagBy(id) { for (var i = 0; D && i < D.flags.length; i++) if (D.flags[i].id === id) return D.flags[i]; return null; }
+  function zHl(text) {
+    return hl(text).replace(/(neeraj|नीरज)/gi, '<mark>$1</mark>');
+  }
+  function renderZaroori() {
+    var flags = D.flags || [];
+    var open = flags.filter(function (f) { return !f.done; });
+    var count = function (k) { return open.filter(function (f) { return f.reasons.indexOf(k) !== -1; }).length; };
+    var doneToday = flags.filter(function (f) { return f.done; }).length;
+    var chips = [['all', 'Sab', open.length], ['tag', '@ Mujhe tag', count('tag')], ['neeraj', '👤 Neeraj', count('neeraj')],
+                 ['payment', '💰 Payment', count('payment')], ['done', '✓ Aaj ho gaye', doneToday]];
+    $('zchips').innerHTML = chips.map(function (ch) {
+      return '<button class="chip' + (ZF === ch[0] ? ' active' : '') + '" data-act="zf" data-f="' + ch[0] + '">' +
+             esc(ch[1]) + '<span class="c">' + ch[2] + '</span></button>';
+    }).join('');
+
+    var q = ZQ.toLowerCase();
+    var list = flags.filter(function (f) {
+      if (ZF === 'done' ? !f.done : f.done) return false;
+      if (ZF !== 'all' && ZF !== 'done' && f.reasons.indexOf(ZF) === -1) return false;
+      if (q && (f.chat + ' ' + f.who + ' ' + f.text).toLowerCase().indexOf(q) === -1) return false;
+      return true;
+    });
+    if (!list.length) {
+      $('zlist').innerHTML = '<div class="empty">' + (ZF === 'done' ? 'Aaj abhi kuch tick nahi kiya.' :
+        flags.length ? 'Sab ho gaya 🎉 Is list mein kuch baaki nahi.' : 'Abhi koi zaroori message nahi aaya.') + '</div>';
+      return;
+    }
+    // One card per group, groups with the newest item first; items newest first inside.
+    var groups = {}, order = [];
+    list.forEach(function (f) {
+      if (!groups[f.jid]) { groups[f.jid] = []; order.push(f.jid); }
+      groups[f.jid].push(f);
+    });
+    $('zlist').innerHTML = order.map(function (jid) {
+      var items = groups[jid], j = esc(jid);
+      return '<div class="zg"><div class="zg-h"><b>' + esc(items[0].chat) + '</b><span class="tm">' + items.length + '</span>' +
+        (ZF !== 'done' && items.length > 1 ? '<button class="btn sm" data-act="flag-group" data-jid="' + j + '">✓ Sab ho gaye</button>' : '') +
+        '</div>' + items.map(function (f) {
+          return '<div class="zi' + (f.done ? ' done' : '') + '"><div class="zi-h">' +
+            f.reasons.map(function (r) { return '<span class="rz ' + r + '">' + esc(REASON_LABEL[r] || r) + '</span>'; }).join('') +
+            '<b>' + esc(f.who) + '</b><span class="tm">' + fmtTime(f.t) + '</span></div>' +
+            '<div class="zt">' + (TYPE_ICON[f.type] || '') + zHl(f.text || '(' + f.type + ')') + '</div><div class="pa">' +
+            (f.done ? '<button class="btn sm" data-act="flag-undo" data-id="' + esc(f.id) + '">↩ Wapas laao</button>'
+                    : '<button class="btn sm pri" data-act="flag-done" data-id="' + esc(f.id) + '">✓ Ho gaya</button>' +
+                      '<button class="btn sm" data-act="kaam-flag" data-id="' + esc(f.id) + '">+ Kaam</button>') +
+            '</div></div>';
+        }).join('') + '</div>';
+    }).join('');
+  }
+  function markFlags(ids, done) {
+    var now = Date.now();
+    ids.forEach(function (id) { var f = flagBy(id); if (f) f.done = done ? now : 0; });
+    renderTiles(); renderZaroori(); renderReview();
+    call('markWaFlags', [ids, done], function () { toast(done ? '✓ Ho gaya' : 'Wapas list mein'); });
+  }
+  function kaamFromFlag(id) {
+    var f = flagBy(id);
+    if (!f) return;
+    var type = f.reasons.indexOf('payment') !== -1 ? 'Payment' : guessType(f.text);
+    openModal('➕ Kaam banao', taskFormHtml('m', { kaam: f.text.slice(0, 300), party: f.group ? shortParty(f.chat) : f.chat,
+      type: type, team: guessTeam(type), due: plusDays(1) }) +
+      '<div class="quote">💬 <b>' + esc(f.chat) + '</b> — ' + esc(f.who) + ': ' + esc(f.text.slice(0, 400)) + '</div>' +
+      '<label style="display:flex;gap:6px;align-items:center;font-weight:600"><input type="checkbox" id="m-flagdone" checked> Zaroori list se hata do</label>',
+      'Save karo', function (btn) {
+        var t = readTaskForm('m');
+        if (!t.kaam) { $('modalErr').textContent = 'Kya karna hai, likhiye.'; return; }
+        t.chat = f.jid; t.msgId = f.id; t.message = f.who + ': ' + f.text;
+        var alsoDone = $('m-flagdone').checked;
+        call('addWaTask', [t], function (tasks) {
+          D.tasks = tasks; closeModal(); toast('Kaam save ho gaya ✓');
+          if (alsoDone) markFlags([f.id], true); else renderAll();
+        }, btn);
+      });
   }
 
   // ---------- INBOX ----------
@@ -821,6 +937,15 @@
       '</div><p class="hint">Kal ke liye kuch khiskaana hai to ⏭ dabaiye; jo ho gaya use ✓ kar dijiye.</p>' +
       '<button class="btn pri" data-act="brief">📲 Ye hisaab mujhe WhatsApp pe bhejo</button></div>';
 
+    var zOpen = (D.flags || []).filter(function (f) { return !f.done; });
+    if (zOpen.length) {
+      var zc = function (k) { return zOpen.filter(function (f) { return f.reasons.indexOf(k) !== -1; }).length; };
+      h += '<div class="sec">⭐ Zaroori — abhi baaki (' + zOpen.length + ')</div><div class="card">' +
+        '<div class="stats"><div class="stat"><b>' + zc('tag') + '</b><span>@ Tag</span></div>' +
+        '<div class="stat"><b>' + zc('neeraj') + '</b><span>Neeraj</span></div>' +
+        '<div class="stat"><b>' + zc('payment') + '</b><span>Payment</span></div></div>' +
+        '<p class="hint"><button class="btn sm pri" data-act="view" data-v="zaroori">⭐ Zaroori list kholo</button></p></div>';
+    }
     if (over.length) h += '<div class="sec red">⏰ Overdue (' + over.length + ')</div>' + over.map(taskHtml).join('');
     if (todayLeft.length) h += '<div class="sec">📌 Aaj ke baaki (' + todayLeft.length + ')</div>' + todayLeft.map(taskHtml).join('');
     if (tomorrow.length) h += '<div class="sec">🗓️ Kal ke liye (' + tomorrow.length + ')</div>' + tomorrow.map(taskHtml).join('');
@@ -920,7 +1045,7 @@
     VIEW = v;
     store('view', v);
     document.querySelectorAll('nav.views button').forEach(function (b) { b.classList.toggle('active', b.dataset.view === v); });
-    ['inbox', 'kaam', 'review', 'setup'].forEach(function (k) { $('v-' + k).hidden = k !== v; });
+    ['zaroori', 'inbox', 'kaam', 'review', 'setup'].forEach(function (k) { $('v-' + k).hidden = k !== v; });
     if (v === 'setup') loadSetup();
   }
   function setFilter(f) {
@@ -951,6 +1076,14 @@
     else if (a === 'clear') clearTags(jid);
     else if (a === 'mute') toggleMute(jid);
     else if (a === 'cat') changeCategory(jid);
+    else if (a === 'zf') { ZF = el.dataset.f; setView('zaroori'); renderZaroori(); }
+    else if (a === 'flag-done') markFlags([id], true);
+    else if (a === 'flag-undo') markFlags([id], false);
+    else if (a === 'flag-group') {
+      markFlags((D.flags || []).filter(function (f) { return f.jid === jid && !f.done &&
+        (ZF === 'all' || f.reasons.indexOf(ZF) !== -1); }).map(function (f) { return f.id; }), true);
+    }
+    else if (a === 'kaam-flag') kaamFromFlag(id);
     else if (a === 'sync') call('syncWaNames', [], function (n) { toast(n + ' groups ke naam aa gaye'); loadSetup(); load(true); }, el);
     else if (a === 'briefs') call('setWaBriefs', [el.dataset.on === '1'], function () { loadSetup(); }, el);
     else if (a === 'copy') copyText(el.dataset.text);
@@ -997,6 +1130,7 @@
   });
   // Names and preview lines filter at once; message text is searched on the server, debounced.
   var searchTimer = null;
+  $('zq').addEventListener('input', function () { ZQ = this.value.trim(); if (D) renderZaroori(); });
   $('q').addEventListener('input', function () {
     Q = this.value.trim(); HITS = null;
     if (D) renderInbox();
@@ -1026,7 +1160,7 @@
     if (!document.hidden && D && nowMs() - D.now > 120000 && $('modal').hidden) load(true);
   });
 
-  setView(store('view') || 'inbox');
+  setView(store('view') === 'inbox' || !store('view') ? 'zaroori' : store('view'));
   load();
 </script>
 </body>

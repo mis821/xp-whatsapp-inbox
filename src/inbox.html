@@ -52,6 +52,14 @@
   .stats-line .s { cursor: pointer; }
   .stats-line .s b { margin-left: 4px; }
   .s-tag { color: var(--amber); } .s-neeraj { color: var(--purple); } .s-pay { color: var(--green); }
+  table.rt { width: 100%; border-collapse: collapse; font-size: 13px; background: #fff; }
+  table.rt th, table.rt td { padding: 7px 9px; border-top: 1px solid #eceef1; text-align: right; white-space: nowrap; }
+  table.rt th:first-child, table.rt td:first-child { text-align: left; }
+  table.rt th { background: #fafbfc; font-size: 11px; text-transform: uppercase; letter-spacing: .3px; color: #555; }
+  table.rt tfoot td { border-top: 2px solid #d0d3d9; font-weight: 700; background: #fafbfc; }
+  table.rt td.z { color: #c3c7cc; }
+  .rwrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+  @media print { .tabbar, .toolbar, .topbar, #banner { display: none !important; } body { background: #fff; } }
   .s-over { color: var(--red); } .s-today { color: var(--brand); } .s-task { color: var(--teal); } .s-owner { color: #b45309; }
   .pcard.r-tasksys { border-left-color: var(--teal); } .pcard.r-owner { border-left-color: #b45309; }
   .badge-pill.r-tasksys { background: var(--teal); } .badge-pill.r-owner { background: #b45309; }
@@ -254,9 +262,10 @@
     <button class="tab active" data-view="zaroori">⭐ Zaroori <span class="badge" id="b-zar"></span></button>
     <button class="tab" data-view="tasks">📋 Task List <span class="badge" id="b-tasks"></span></button>
     <button class="tab" data-view="owners">👑 Owners <span class="badge" id="b-owners"></span></button>
-    <button class="tab" data-view="kaam">✅ Mere Kaam <span class="badge" id="b-kaam"></span></button>
+    <button class="tab" data-view="kaam">✅ Work List <span class="badge" id="b-kaam"></span></button>
     <button class="tab" data-view="review">🌆 Shaam ka hisaab</button>
     <button class="tab" data-view="inbox">💬 Sab chats</button>
+    <button class="tab" data-view="report">📊 Report</button>
     <button class="tab" data-view="setup">⚙️ Setup</button>
     <span class="right">
       <span class="who" id="who"></span>
@@ -320,10 +329,10 @@
   <!-- ============ MERE KAAM ============ -->
   <section id="v-kaam" hidden>
     <details class="card" id="quickBox">
-      <summary style="font-weight:800;cursor:pointer;color:var(--brand)">➕ Naya kaam / commitment likho</summary>
+      <summary style="font-weight:800;cursor:pointer;color:var(--brand)">➕ Add to Work List (naya kaam / commitment)</summary>
       <div id="quickForm"></div>
       <div class="foot" style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
-        <button class="btn pri" id="quickSave">Save karo</button>
+        <button class="btn pri" id="quickSave">Add to Work List</button>
       </div>
       <p class="hint">Meeting mein ho aur phone pe kuch commit kar diya? WhatsApp pe apne aap ko (<b>Message yourself</b>) likh do:<br>
         <code>#kaam Jyoti Timbers: payment kal ho jayega</code> — ye yahan apne aap aa jayega (kal = due kal, "payment" = Accounts).</p>
@@ -335,6 +344,17 @@
   <!-- ============ REVIEW ============ -->
   <section id="v-review" hidden>
     <div id="review"></div>
+  </section>
+
+  <!-- ============ REPORT ============ -->
+  <section id="v-report" hidden>
+    <div class="toolbar">
+      <label style="margin:0;font-size:13px;color:var(--ink)">Mahina: <input type="month" id="rmonth" style="padding:8px;border:1px solid #d0d3d9;border-radius:8px"></label>
+      <a class="btn" href="/export/items.csv">⬇ Saare messages (Excel)</a>
+      <a class="btn" href="/export/worklist.csv">⬇ Work List (Excel)</a>
+      <button class="btn" onclick="window.print()">🖨 Print / PDF</button>
+    </div>
+    <div id="report"><div class="empty">Load ho raha hai…</div></div>
   </section>
 
   <!-- ============ SETUP ============ -->
@@ -555,8 +575,8 @@
         '<span class="s s-tag" data-act="zf" data-f="tag">@ Mujhe tag:<b>' + c.ftag + '</b></span>' +
         '<span class="s s-neeraj" data-act="zf" data-f="neeraj">Neeraj:<b>' + c.fneeraj + '</b></span>' +
         '<span class="s s-pay" data-act="zf" data-f="payment">Payment:<b>' + c.fpay + '</b></span>' +
-        '<span class="s s-over" data-act="view" data-v="kaam">Overdue kaam:<b>' + c.over + '</b></span>' +
-        '<span class="s s-today" data-act="view" data-v="kaam">Aaj ke kaam:<b>' + c.today + '</b></span>' +
+        '<span class="s s-over" data-act="view" data-v="kaam">Work List overdue:<b>' + c.over + '</b></span>' +
+        '<span class="s s-today" data-act="view" data-v="kaam">Work List aaj:<b>' + c.today + '</b></span>' +
         '<span class="s s-task" data-act="view" data-v="tasks">Task list:<b>' + c.tasks + '</b></span>' +
         '<span class="s s-owner" data-act="view" data-v="owners">Owners:<b>' + c.owners + '</b></span>' +
       '</div><div class="total">Zaroori baaki: <b>' + c.fopen + '</b></div>';
@@ -631,7 +651,7 @@
           '<button class="bigbtn teal" data-act="reply" data-id="' + esc(f.id) + '">↩ Reply karo</button>' +
           (f.done ? '<button class="bigbtn grey" data-act="flag-undo" data-id="' + esc(f.id) + '">↩ Wapas laao</button>'
                   : '<button class="bigbtn done" data-act="flag-done" data-id="' + esc(f.id) + '">✓ Ho gaya</button>' +
-                    '<button class="bigbtn kaam" data-act="kaam-flag" data-id="' + esc(f.id) + '">+ Kaam banao</button>') +
+                    '<button class="bigbtn kaam" data-act="kaam-flag" data-id="' + esc(f.id) + '">+ Add to Work List</button>') +
         '</div></div>';
     }
   }
@@ -702,7 +722,7 @@
         '<button class="bigbtn teal" data-act="reply" data-id="' + esc(f.id) + '">↩ Reply karo</button>' +
         (f.done ? '<button class="bigbtn grey" data-act="flag-undo" data-id="' + esc(f.id) + '">↩ Wapas laao</button>'
                 : '<div class="btnrow"><button class="bigbtn done" data-act="flag-done" data-id="' + esc(f.id) + '">✓ Ho gaya</button>' +
-                  '<button class="bigbtn kaam" data-act="kaam-flag" data-id="' + esc(f.id) + '">+ Kaam</button></div>') +
+                  '<button class="bigbtn kaam" data-act="kaam-flag" data-id="' + esc(f.id) + '">+ Work List</button></div>') +
       '</div><div class="sec">💬 Is chat mein aas-paas</div>' + ctxHtml(f.id);
   }
   function taskDetail(key) {
@@ -720,6 +740,48 @@
         (isDone ? '<button class="bigbtn grey" data-act="task-key-undo" data-k="' + esc(g.key) + '">↩ Wapas laao</button>'
                 : '<button class="bigbtn done" data-act="task-key-done" data-k="' + esc(g.key) + '">✓ Ho gaya</button>') +
       '</div><div class="sec">💬 ' + esc(g.latest.chat) + '</div>' + ctxHtml(g.latest.id);
+  }
+
+  // ---------- REPORT ----------
+  function loadReport() {
+    var m = $('rmonth');
+    if (!m.value) m.value = todayKey().slice(0, 7);
+    $('report').innerHTML = '<div class="empty">Report ban rahi hai…</div>';
+    rpc('getWaReport', [m.value], renderReport, function (e) { $('report').innerHTML = '<div class="banner red">' + esc(e.message) + '</div>'; });
+  }
+  function renderReport(r) {
+    var t = r.totals, sp = r.speed, o = r.openNow;
+    var pct = function (a, b) { return b ? Math.round(a / b * 100) + '%' : '—'; };
+    var monthName = new Date(r.month + '-01T00:00:00').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+    var stat = function (n, label, color) { return '<div class="stat"><b' + (color ? ' style="color:' + color + '"' : '') + '>' + n + '</b><span>' + label + '</span></div>'; };
+    var h = '<div class="card"><h3>📊 ' + esc(monthName) + ' — kya aaya, kitna nipta</h3><div class="stats">' +
+      stat(t.zIn, '⭐ Zaroori aaye') + stat(t.zDone, '✓ Zaroori nipte', 'var(--green)') +
+      stat(t.tIn, '📋 Naye tasks (task system)') + stat(t.tDone, '✓ Tasks close', 'var(--green)') +
+      stat(t.oIn, '👑 Owners ke messages') + stat(t.oDone, '✓ Owners ke nipte', 'var(--green)') +
+      stat(t.wIn, '✅ Work List mein add') + stat(t.wDone, '✓ Work List poore', 'var(--green)') +
+      stat(t.replies, '↩ Dashboard se reply') + '</div></div>' +
+      '<div class="card"><h3>⏱ Kitni jaldi</h3><div class="stats">' +
+      stat(sp.handled, 'Items nipte (Zaroori + Owners)') +
+      stat(sp.medianHours + ' ghante', 'Aadhe items itne mein nipte') +
+      stat(pct(sp.sameDay, sp.handled), '24 ghante ke andar') + stat(pct(sp.within3Days, sp.handled), '3 din ke andar') + '</div></div>' +
+      '<div class="card"><h3>📌 Abhi baaki (aaj tak)</h3><div class="stats">' +
+      stat(o.zaroori, '⭐ Zaroori', o.zaroori ? 'var(--amber)' : '') + stat(o.task, '📋 Tasks', o.task ? 'var(--amber)' : '') +
+      stat(o.owner, '👑 Owners', o.owner ? 'var(--amber)' : '') + stat(o.workList, '✅ Work List khule') +
+      stat(o.workListOverdue, 'Work List overdue', o.workListOverdue ? 'var(--red)' : '') + '</div></div>';
+    var cell = function (n) { return '<td' + (n ? '' : ' class="z"') + '>' + n + '</td>'; };
+    h += '<div class="sec">🗓 Din-ba-din</div><div class="rwrap"><table class="rt"><thead><tr><th>Din</th>' +
+      '<th>Zaroori aaye</th><th>nipte</th><th>Tasks aaye</th><th>close</th><th>Owners aaye</th><th>nipte</th>' +
+      '<th>Work List add</th><th>poore</th><th>Reply</th></tr></thead><tbody>' +
+      (r.days.length ? r.days.slice().reverse().map(function (d) {
+        var dt = new Date(d.day + 'T00:00:00');
+        return '<tr><td>' + dt.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }) + '</td>' +
+          cell(d.zIn) + cell(d.zDone) + cell(d.tIn) + cell(d.tDone) + cell(d.oIn) + cell(d.oDone) + cell(d.wIn) + cell(d.wDone) + cell(d.replies) + '</tr>';
+      }).join('') : '<tr><td colspan="10" style="text-align:center;color:var(--sub)">Is mahine abhi kuch nahi</td></tr>') +
+      '</tbody><tfoot><tr><td>Kul</td>' + cell(t.zIn) + cell(t.zDone) + cell(t.tIn) + cell(t.tDone) + cell(t.oIn) + cell(t.oDone) +
+      cell(t.wIn) + cell(t.wDone) + cell(t.replies) + '</tr></tfoot></table></div>' +
+      '<p class="hint">Har item jo kabhi list pe aaya — kab aaya, kab "✓ Ho gaya" hua, kitne ghante lage, reply kya gaya — ' +
+      '"⬇ Saare messages (Excel)" mein hai. Record kabhi delete nahi hota; har raat poore database ka backup bhi banta hai.</p>';
+    $('report').innerHTML = h;
   }
 
   // ---------- REPLY ----------
@@ -870,17 +932,17 @@
     var f = flagBy(id);
     if (!f) return;
     var type = f.reasons.indexOf('payment') !== -1 ? 'Payment' : guessType(f.text);
-    openModal('➕ Kaam banao', taskFormHtml('m', { kaam: f.text.slice(0, 300), party: f.group ? shortParty(f.chat) : f.chat,
+    openModal('➕ Add to Work List', taskFormHtml('m', { kaam: f.text.slice(0, 300), party: f.group ? shortParty(f.chat) : f.chat,
       type: type, team: guessTeam(type), due: plusDays(1) }) +
       '<div class="quote">💬 <b>' + esc(f.chat) + '</b> — ' + esc(f.who) + ': ' + esc(f.text.slice(0, 400)) + '</div>' +
-      '<label style="display:flex;gap:6px;align-items:center;font-weight:600"><input type="checkbox" id="m-flagdone" checked> Zaroori list se hata do</label>',
-      'Save karo', function (btn) {
+      '<label style="display:flex;gap:6px;align-items:center;font-weight:600"><input type="checkbox" id="m-flagdone" checked> Zaroori list se hata do (✓ Ho gaya)</label>',
+      'Add to Work List', function (btn) {
         var t = readTaskForm('m');
         if (!t.kaam) { $('modalErr').textContent = 'Kya karna hai, likhiye.'; return; }
         t.chat = f.jid; t.msgId = f.id; t.message = f.who + ': ' + f.text;
         var alsoDone = $('m-flagdone').checked;
         call('addWaTask', [t], function (tasks) {
-          D.tasks = tasks; closeModal(); toast('Kaam save ho gaya ✓');
+          D.tasks = tasks; closeModal(); toast('Work List mein add ho gaya ✓');
           if (alsoDone) markFlags([f.id], true); else renderAll();
         }, btn);
       });
@@ -942,7 +1004,7 @@
       '<div class="pi2"><span class="who">' + esc(p.who) + ':</span> ' + (p.call ? '📞 Call aaya' : hl(p.text)) +
       (c.pending > 1 ? ' <span class="b b-tag">+' + (c.pending - 1) + '</span>' : '') + '</div>' +
       '<div class="pa"><button class="btn sm" data-act="open" data-jid="' + esc(c.jid) + '">Kholo</button>' +
-      '<button class="btn sm" data-act="kaam-msg" data-jid="' + esc(c.jid) + '" data-id="' + esc(p.id) + '">+ Kaam</button>' +
+      '<button class="btn sm" data-act="kaam-msg" data-jid="' + esc(c.jid) + '" data-id="' + esc(p.id) + '">+ Work List</button>' +
       '<button class="btn sm" data-act="clear" data-jid="' + esc(c.jid) + '">✓ Ho gaya</button></div></div>';
   }
 
@@ -975,12 +1037,12 @@
       h += '<div class="msg' + (m.me ? ' me' : '') + (m.unseen ? ' new' : '') + (m.pending ? ' pend' : '') + '">' +
         '<div class="mh"><b>' + esc(m.who) + '</b><span class="tm">' + fmtTime(m.t) + '</span>' +
         (m.pending ? '<span class="pt">' + (m.call ? 'call' : m.tag ? '@ aapko tag' : 'reply baaki') + '</span>' : '') +
-        (m.me ? '' : '<button class="btn sm mk" data-act="kaam-msg" data-jid="' + j + '" data-id="' + esc(m.id) + '">+ Kaam</button>') +
+        (m.me ? '' : '<button class="btn sm mk" data-act="kaam-msg" data-jid="' + j + '" data-id="' + esc(m.id) + '">+ Work List</button>') +
         '</div><div class="mt">' + msgText(m) + '</div></div>';
     });
     h += '<div class="cacts">' +
       (c.pending ? '<button class="btn sm pri" data-act="clear" data-jid="' + j + '">✓ Tag/direct ho gaya</button>' : '') +
-      '<button class="btn sm" data-act="kaam-chat" data-jid="' + j + '">+ Kaam</button>' +
+      '<button class="btn sm" data-act="kaam-chat" data-jid="' + j + '">+ Work List</button>' +
       '<button class="btn sm" data-act="mute" data-jid="' + j + '">' + (c.muted ? '🔔 Unmute' : '🔕 Mute') + '</button>' +
       '<button class="btn sm" data-act="cat" data-jid="' + j + '">🏷 ' + esc(c.cat) + '</button>' +
       '<button class="btn sm" data-act="toggle" data-jid="' + j + '">Band karo</button>' +
@@ -1101,22 +1163,22 @@
     var v = { kaam: m && !m.call ? text.slice(0, 300) : text, party: c.kind === 'group' ? shortParty(c.name) : c.name,
               type: type, team: guessTeam(type), due: plusDays(1) };
     var quote = m ? '<div class="quote">💬 <b>' + esc(c.name) + '</b> — ' + esc(m.who) + ': ' + esc((m.text || (m.call ? 'call' : '')).slice(0, 400)) + '</div>' : '';
-    openModal('➕ Kaam banao', taskFormHtml('m', v) + quote, 'Save karo', function (btn) {
+    openModal('➕ Add to Work List', taskFormHtml('m', v) + quote, 'Save karo', function (btn) {
       var t = readTaskForm('m');
       if (!t.kaam) { $('modalErr').textContent = 'Kya karna hai, likhiye.'; return; }
       t.chat = c.jid; t.msgId = m ? m.id : ''; t.message = m ? (m.who + ': ' + (m.text || 'call')) : '';
-      call('addWaTask', [t], function (tasks) { D.tasks = tasks; closeModal(); toast('Kaam save ho gaya ✓'); renderAll(); }, btn);
+      call('addWaTask', [t], function (tasks) { D.tasks = tasks; closeModal(); toast('Work List mein add ho gaya ✓'); renderAll(); }, btn);
     });
   }
   function kaamFromChat(jid) {
     var c = chatBy(jid);
     if (!c) return;
-    openModal('➕ Kaam banao — ' + c.name, taskFormHtml('m', { party: c.kind === 'group' ? shortParty(c.name) : c.name, due: plusDays(1) }),
-      'Save karo', function (btn) {
+    openModal('➕ Add to Work List — ' + c.name, taskFormHtml('m', { party: c.kind === 'group' ? shortParty(c.name) : c.name, due: plusDays(1) }),
+      'Add to Work List', function (btn) {
         var t = readTaskForm('m');
         if (!t.kaam) { $('modalErr').textContent = 'Kya karna hai, likhiye.'; return; }
         t.chat = c.jid;
-        call('addWaTask', [t], function (tasks) { D.tasks = tasks; closeModal(); toast('Kaam save ho gaya ✓'); renderAll(); }, btn);
+        call('addWaTask', [t], function (tasks) { D.tasks = tasks; closeModal(); toast('Work List mein add ho gaya ✓'); renderAll(); }, btn);
       });
   }
 
@@ -1127,7 +1189,7 @@
       D.tasks = tasks;
       initQuickForm();
       $('quickBox').open = false;
-      toast('Kaam save ho gaya ✓');
+      toast('Work List mein add ho gaya ✓');
       renderAll();
     }, btn);
   }
@@ -1244,7 +1306,7 @@
       if (!g[2].length) return;
       h += '<div class="sec ' + g[1] + '">' + g[0] + ' <span class="c">(' + g[2].length + ')</span></div>' + taskGrid(g[2]);
     });
-    if (!open.length) h += '<div class="empty">Koi khula kaam nahi 🎉</div>';
+    if (!open.length) h += '<div class="empty">Work List khaali hai 🎉</div>';
     if (doneToday.length) h += '<div class="sec">✅ Aaj poore hue (' + doneToday.length + ')</div>' + taskGrid(doneToday);
     if (doneEarlier.length) h += '<details><summary>Pichle 7 din mein poore (' + doneEarlier.length + ')</summary>' + taskGrid(doneEarlier) + '</details>';
     $('taskList').innerHTML = h;
@@ -1272,9 +1334,9 @@
     var d = new Date();
     var title = d.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' });
     var h = '<div class="card"><h3>🌆 Aaj ka hisaab — ' + esc(title) + '</h3><div class="stats">' +
-      '<div class="stat"><b>' + madeToday.length + '</b><span>Aaj naye kaam</span></div>' +
+      '<div class="stat"><b>' + madeToday.length + '</b><span>Work List mein aaj add</span></div>' +
       '<div class="stat"><b>' + doneToday.length + '</b><span>Aaj poore</span></div>' +
-      '<div class="stat"><b>' + open.length + '</b><span>Khule kaam</span></div>' +
+      '<div class="stat"><b>' + open.length + '</b><span>Work List khule</span></div>' +
       '<div class="stat"><b style="color:var(--red)">' + over.length + '</b><span>Overdue</span></div>' +
       '<div class="stat"><b style="color:var(--amber)">' + pend.length + '</b><span>Reply baaki</span></div>' +
       '</div><p class="hint">Kal ke liye kuch khiskaana hai to ⏭ dabaiye; jo ho gaya use ✓ kar dijiye.</p>' +
@@ -1309,18 +1371,18 @@
           return '<div class="rl"><span class="x"><b>' + esc(c.name) + '</b> — ' + esc(p.who) + ': ' +
             (p.call ? '📞 call' : esc(p.text.slice(0, 140))) + ' <span class="tm">' + fmtTime(p.t) + '</span></span>' +
             '<button class="btn sm" data-act="open" data-jid="' + esc(c.jid) + '">Kholo</button>' +
-            '<button class="btn sm" data-act="kaam-msg" data-jid="' + esc(c.jid) + '" data-id="' + esc(p.id) + '">+ Kaam</button></div>';
+            '<button class="btn sm" data-act="kaam-msg" data-jid="' + esc(c.jid) + '" data-id="' + esc(p.id) + '">+ Work List</button></div>';
         }).join('') + '</div>';
     }
     if (calls.length) {
       h += '<div class="sec">📞 Aaj ke WhatsApp calls (' + calls.length + ')</div><div class="card">' +
         calls.map(function (x) {
           return '<div class="rl"><span class="x"><b>' + esc(x.c.name) + '</b> <span class="tm">' + fmtTime(x.m.t) + '</span></span>' +
-            '<button class="btn sm" data-act="kaam-msg" data-jid="' + esc(x.c.jid) + '" data-id="' + esc(x.m.id) + '">+ Kaam</button></div>';
+            '<button class="btn sm" data-act="kaam-msg" data-jid="' + esc(x.c.jid) + '" data-id="' + esc(x.m.id) + '">+ Work List</button></div>';
         }).join('') + '</div>';
     }
     if (madeToday.length) {
-      h += '<details><summary>🆕 Aaj bane saare kaam (' + madeToday.length + ')</summary>' + taskGrid(madeToday) + '</details>';
+      h += '<details><summary>🆕 Aaj Work List mein add hue (' + madeToday.length + ')</summary>' + taskGrid(madeToday) + '</details>';
     }
     if (busy.length) {
       h += '<div class="sec">💬 Aaj kahan kitne messages aaye</div><div class="card">' +
@@ -1397,8 +1459,9 @@
     VIEW = v;
     store('view', v);
     document.querySelectorAll('nav.views .tab').forEach(function (b) { b.classList.toggle('active', b.dataset.view === v); });
-    ['zaroori', 'tasks', 'owners', 'inbox', 'kaam', 'review', 'setup'].forEach(function (k) { $('v-' + k).hidden = k !== v; });
+    ['zaroori', 'tasks', 'owners', 'inbox', 'kaam', 'review', 'report', 'setup'].forEach(function (k) { $('v-' + k).hidden = k !== v; });
     if (v === 'setup') loadSetup();
+    if (v === 'report') loadReport();
     if (D && !narrow()) renderDetail();
   }
   function setFilter(f) {
@@ -1501,6 +1564,7 @@
   });
   // Names and preview lines filter at once; message text is searched on the server, debounced.
   var searchTimer = null;
+  $('rmonth').addEventListener('change', loadReport);
   $('zq').addEventListener('input', function () { ZQ = this.value.trim(); if (D) renderZaroori(); });
   $('tq').addEventListener('input', function () { TQ = this.value.trim(); if (D) renderTaskList(); });
   $('oq').addEventListener('input', function () { OQ = this.value.trim(); if (D) renderOwners(); });

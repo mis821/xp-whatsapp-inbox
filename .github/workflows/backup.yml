@@ -1,0 +1,45 @@
+# Nightly backup of the whole database (every message on a list, every task, every reply).
+# Kept as a downloadable file on the run (Actions > Backup > the run > Artifacts) for 90 days.
+# Cloudflare D1 also keeps 30 days of point-in-time history on its side ("Time Travel").
+name: Backup
+
+on:
+  schedule:
+    - cron: '45 21 * * *'     # 03:15 IST
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install -g wrangler@4
+      - name: Point wrangler at the database
+        run: |
+          id=$(wrangler d1 list --json | node -e '
+            let s = ""; process.stdin.on("data", d => s += d).on("end", () => {
+              const db = JSON.parse(s).find(x => x.name === "xp_wa_inbox");
+              console.log(db ? (db.uuid || db.id || db.database_id || "") : "");
+            });')
+          test -n "$id" || { echo "::error::Database xp_wa_inbox not found."; exit 1; }
+          sed -i "s/__D1_DATABASE_ID__/$id/" wrangler.toml
+      - name: Export
+        run: |
+          d=$(TZ=Asia/Kolkata date +%Y-%m-%d)
+          mkdir -p backup
+          wrangler d1 export xp_wa_inbox --remote --output "backup/xp-wa-inbox-$d.sql"
+          gzip -9 "backup/xp-wa-inbox-$d.sql"
+          ls -la backup
+          echo "### 💾 Backup $d" >> $GITHUB_STEP_SUMMARY
+          echo "$(du -h backup/*.gz | cut -f1) — download from Artifacts below (kept 90 days)." >> $GITHUB_STEP_SUMMARY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xp-wa-inbox-backup
+          path: backup/*.gz
+          retention-days: 90

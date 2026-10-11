@@ -847,6 +847,117 @@ async function outboxOut(env) {
 }
 
 // ===================================================================
+// Report for the directors — what came in, what was handled, how fast
+// ===================================================================
+function kindOf(reasons) {
+  const r = String(reasons).split(' ');
+  if (r.indexOf('tasksys') !== -1) return 'task';
+  if (r.indexOf('owner') !== -1) return 'owner';
+  return 'zaroori';
+}
+
+// month: 'yyyy-mm' (IST). Day-by-day counts plus totals and response times.
+async function getReport(env, month) {
+  if (!/^\d{4}-\d{2}$/.test(String(month || ''))) month = dayKey(Date.now()).slice(0, 7);
+  const start = parseDay(month + '-01');
+  const [y, m] = month.split('-').map(Number);
+  const end = parseDay((m === 12 ? (y + 1) + '-01' : y + '-' + String(m + 1).padStart(2, '0')) + '-01');
+  const flags = (await env.DB.prepare(
+    'SELECT f.msg_id, f.t, f.reasons, f.done_at, m.text FROM flags f LEFT JOIN messages m ON m.id = f.msg_id ' +
+    'WHERE (f.t >= ? AND f.t < ?) OR (f.done_at >= ? AND f.done_at < ?)').bind(start, end, start, end).all()).results;
+  const tasks = (await env.DB.prepare(
+    "SELECT created, done_at, status, due FROM tasks WHERE status != 'Cancelled' AND ((created >= ? AND created < ?) OR (done_at >= ? AND done_at < ?))"
+  ).bind(start, end, start, end).all()).results;
+  const replies = (await env.DB.prepare("SELECT sent_at FROM outbox WHERE status = 'sent' AND sent_at >= ? AND sent_at < ?")
+    .bind(start, end).all()).results;
+
+  const days = {};
+  const day = k => days[k] || (days[k] = { day: k, zIn: 0, zDone: 0, oIn: 0, oDone: 0, tIn: 0, tDone: 0, wIn: 0, wDone: 0, replies: 0 });
+  const inRange = t => t >= start && t < end;
+  const seenTask = {}, closeHours = [];
+  // Task-system reminders repeat daily: count each task once, on the day its first reminder came.
+  const firstReminder = {};
+  flags.filter(f => kindOf(f.reasons) === 'task').forEach(f => {
+    const k = taskKey(f.text) || f.msg_id;
+    if (!firstReminder[k] || f.t < firstReminder[k].t) firstReminder[k] = f;
+  });
+  for (const f of flags) {
+    const kind = kindOf(f.reasons);
+    if (kind === 'task') {
+      const k = taskKey(f.text) || f.msg_id;
+      if (firstReminder[k] === f && inRange(f.t)) day(dayKey(f.t)).tIn++;
+      if (f.done_at && inRange(f.done_at) && !seenTask[k]) { seenTask[k] = 1; day(dayKey(f.done_at)).tDone++; }
+      continue;
+    }
+    const pre = kind === 'owner' ? 'o' : 'z';
+    if (inRange(f.t)) day(dayKey(f.t))[pre + 'In']++;
+    if (f.done_at && inRange(f.done_at)) {
+      day(dayKey(f.done_at))[pre + 'Done']++;
+      if (f.done_at >= f.t) closeHours.push((f.done_at - f.t) / 3600000);
+    }
+  }
+  for (const t of tasks) {
+    if (inRange(t.created)) day(dayKey(t.created)).wIn++;
+    if (t.status === 'Done' && t.done_at && inRange(t.done_at)) day(dayKey(t.done_at)).wDone++;
+  }
+  for (const r of replies) day(dayKey(r.sent_at)).replies++;
+
+  const list = Object.keys(days).sort().map(k => days[k]);
+  const sum = key => list.reduce((a, d) => a + d[key], 0);
+  closeHours.sort((a, b) => a - b);
+  const median = closeHours.length ? closeHours[Math.floor(closeHours.length / 2)] : 0;
+  const within = h => closeHours.filter(x => x <= h).length;
+
+  // Open right now (not just this month): what is still waiting.
+  const openNow = (await env.DB.prepare('SELECT reasons, text FROM flags f LEFT JOIN messages m ON m.id = f.msg_id WHERE f.done_at IS NULL').all()).results;
+  const openTasks = new Set(openNow.filter(f => kindOf(f.reasons) === 'task').map(f => taskKey(f.text) || f.text));
+  const wl = await env.DB.prepare("SELECT SUM(status = 'Open') AS open, SUM(status = 'Open' AND due < ?) AS overdue FROM tasks").bind(dayKey(Date.now())).first();
+  return {
+    month, days: list,
+    totals: { zIn: sum('zIn'), zDone: sum('zDone'), oIn: sum('oIn'), oDone: sum('oDone'), tIn: sum('tIn'), tDone: sum('tDone'),
+              wIn: sum('wIn'), wDone: sum('wDone'), replies: sum('replies') },
+    speed: { handled: closeHours.length, medianHours: Math.round(median * 10) / 10, sameDay: within(24), within3Days: within(72) },
+    openNow: { zaroori: openNow.filter(f => kindOf(f.reasons) === 'zaroori').length,
+               owner: openNow.filter(f => kindOf(f.reasons) === 'owner').length, task: openTasks.size,
+               workList: (wl && wl.open) || 0, workListOverdue: (wl && wl.overdue) || 0 }
+  };
+}
+
+function csvCell(v) {
+  const s = String(v === null || v === undefined ? '' : v);
+  return /[",\n\r]/.test(s) || /^[=+\-@]/.test(s) ? '"' + (/^[=+\-@]/.test(s) ? "'" : '') + s.replace(/"/g, '""') + '"' : s;
+}
+function istTime(ms) { return ms ? new Date(ms + IST).toISOString().slice(0, 16).replace('T', ' ') : ''; }
+
+// Everything that ever came onto a list, and the whole Work List — for Excel. BOM so Excel reads Hindi.
+async function exportCsv(env, which) {
+  let rows;
+  if (which === 'worklist') {
+    const r = (await env.DB.prepare('SELECT * FROM tasks ORDER BY created').all()).results;
+    rows = [['Added', 'Source', 'Type', 'Party', 'Work', 'Due', 'Team', 'Status', 'Done at', 'Days taken', 'Sent to team', 'Note', 'From message']]
+      .concat(r.map(t => [istTime(t.created), t.source, t.type, t.party, t.kaam, t.due, t.team, t.status, istTime(t.done_at),
+        t.done_at ? Math.round((t.done_at - t.created) / 864e5 * 10) / 10 : '', t.notified, t.note, t.message]));
+  } else {
+    const r = (await env.DB.prepare(
+      'SELECT f.msg_id, f.t, f.reasons, f.done_at, m.sender_name, m.sender_phone, m.text, c.name AS chat_name, f.chat ' +
+      'FROM flags f LEFT JOIN messages m ON m.id = f.msg_id LEFT JOIN chats c ON c.jid = f.chat ORDER BY f.t').all()).results;
+    const rep = {};
+    (await env.DB.prepare("SELECT quote, sent_at, text FROM outbox WHERE status = 'sent'").all()).results
+      .forEach(o => { if (o.quote) rep[o.quote] = o; });
+    rows = [['Received', 'List', 'Why', 'Group / chat', 'From', 'Owner', 'Message', 'Task id', 'Handled (Ho gaya)', 'Hours taken', 'Reply sent', 'Reply']]
+      .concat(r.map(f => {
+        const kind = kindOf(f.reasons);
+        return [istTime(f.t), kind === 'task' ? 'Task List' : kind === 'owner' ? 'Owners' : 'Zaroori', f.reasons,
+          f.chat_name || f.chat, f.sender_name || (f.sender_phone ? '+' + f.sender_phone : ''), ownerOf(f.sender_phone),
+          f.text, kind === 'task' ? taskKey(f.text) : '', istTime(f.done_at),
+          f.done_at && f.done_at >= f.t ? Math.round((f.done_at - f.t) / 36e5 * 10) / 10 : '',
+          rep[f.msg_id] ? istTime(rep[f.msg_id].sent_at) : '', rep[f.msg_id] ? rep[f.msg_id].text : ''];
+      }));
+  }
+  return '\ufeff' + rows.map(r => r.map(csvCell).join(',')).join('\r\n');
+}
+
+// ===================================================================
 // Names sync (cron + button)
 // ===================================================================
 export async function syncNames(env, withContacts) {
@@ -922,12 +1033,12 @@ export function briefText(d, kind) {
   const extraLines = extra.length ? [''].concat(extra) : [];
   let L = [];
   if (kind === 'morning') {
-    L.push('☀️ *Good morning — aaj ke kaam* (' + dm(today) + ')');
+    L.push('☀️ *Good morning — aaj ki Work List* (' + dm(today) + ')');
     L = L.concat(extraLines, zaroori, section('⏰ *Overdue*', overdue, taskLine, 10), section('📌 *Aaj*', dueToday, taskLine, 15));
     if (!overdue.length && !dueToday.length && !openFlags.length) L.push('', 'Sab clear hai ✅');
   } else {
     L.push('🌆 *Aaj ka hisaab* — ' + dm(today));
-    L.push('✅ Aaj poore hue: ' + doneToday.length + '   📝 Khule kaam: ' + open.length);
+    L.push('✅ Aaj poore hue: ' + doneToday.length + '   📝 Work List khule: ' + open.length);
     L = L.concat(extraLines, zaroori, section('⏰ *Overdue*', overdue, taskLine, 10), section('📌 *Aaj ke baaki*', dueToday, taskLine, 10),
       section('🗓️ *Kal ke liye*', dueTomorrow, taskLine, 10));
   }
@@ -972,6 +1083,7 @@ const RPC = {
   sendWaReplyNow: (env, a) => sendReplyNow(env, a[0]),
   getWaChat: (env, a) => getChat(env, a[0], a[1]),
   getWaContext: (env, a) => getContext(env, a[0]),
+  getWaReport: (env, a) => getReport(env, a[0]),
   searchWa: (env, a) => searchChats(env, a[0], a[1]),
   markWaChatsSeen: (env, a) => markSeen(env, a[0]),
   clearWaChatTags: (env, a) => clearTags(env, a[0], a[1]),
@@ -1100,6 +1212,13 @@ export function makeWorker(inboxHtml, userScript, coreScript) {
           return new Response(String(userScript || '').replace('__ENDPOINT__', url.origin + '/webhook?token=' + token),
             { headers: Object.assign({ 'Content-Type': 'text/javascript; charset=utf-8' }, SEC_HEADERS) });
         }
+        if ((p === '/export/items.csv' || p === '/export/worklist.csv') && req.method === 'GET') {
+          if (!authed) return loginPage('');
+          const which = p.indexOf('worklist') !== -1 ? 'worklist' : 'items';
+          return new Response(await exportCsv(env, which), { headers: Object.assign({
+            'Content-Type': 'text/csv; charset=utf-8',
+            'Content-Disposition': 'attachment; filename="xp-' + which + '-' + dayKey(Date.now()) + '.csv"' }, SEC_HEADERS) });
+        }
         if (p === '/' && req.method === 'GET') {
           if (!authed) return loginPage('');
           return new Response(inboxHtml, { headers: Object.assign({ 'Content-Type': 'text/html; charset=utf-8' }, SEC_HEADERS) });
@@ -1118,9 +1237,9 @@ export function makeWorker(inboxHtml, userScript, coreScript) {
       else if (cron === '30 13 * * *' && briefsOn) await sendBrief(env, 'evening');
       else if (cron === '0 21 * * *') {
         const cut = Date.now() - KEEP_DAYS * DAY;
-        // Anything still open on the Zaroori list is kept, however old — it is somebody's unpaid bill.
-        await env.DB.prepare('DELETE FROM messages WHERE received_at < ? AND id NOT IN (SELECT msg_id FROM flags WHERE done_at IS NULL)').bind(cut).run();
-        await env.DB.prepare('DELETE FROM flags WHERE done_at IS NOT NULL AND done_at < ?').bind(cut).run();
+        // Only the everyday chatter goes. Every message that was ever on a list (Zaroori, Task List,
+        // Owners) stays, with its flag, for good — that is the record the directors' report is built on.
+        await env.DB.prepare('DELETE FROM messages WHERE received_at < ? AND id NOT IN (SELECT msg_id FROM flags)').bind(cut).run();
         await syncNames(env, true);
       } else if (cron === '0 */6 * * *') {
         await syncNames(env, false);

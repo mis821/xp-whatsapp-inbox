@@ -303,6 +303,20 @@ assert.equal(cx.msg.text, 'Neeraj sir se baat ho gayi');
 assert.ok(cx.around.some(m => m.focus && m.id === 'Z2') && cx.around.length > 1);
 await assert.rejects(rpc('getWaContext', 'nope'), /nahi mila/);
 
+// Report + export
+const rp = await rpc('getWaReport', dayKey(now).slice(0, 7));
+assert.ok(rp.totals.zIn > 0 && rp.totals.tIn === 1, 'zaroori counted, task reminders counted once per task: ' + JSON.stringify(rp.totals));
+assert.ok(rp.totals.zDone > 0 && rp.speed.handled > 0);
+assert.ok(rp.totals.replies >= 2 && rp.openNow.task === 1);
+const csv = await (await req('/export/items.csv', { headers: { cookie } })).text();
+assert.ok(csv.replace(/^\ufeff/, '').startsWith('Received,List,Why') && /Task List/.test(csv) && /Zaroori/.test(csv));
+assert.ok(/"'=SUM/.test(await (await req('/export/worklist.csv', { headers: { cookie } })).text()), 'formula-looking text defused for Excel');
+assert.match(await (await req('/export/items.csv')).text(), /password/, 'export needs login');
+// nightly clean-up keeps every listed message, ticked or not
+env.DB.raw.prepare("UPDATE messages SET received_at = ? WHERE id = 'Z1'").run(now - 60 * 86400000);
+await worker.scheduled({ cron: '0 21 * * *' }, env, ctx);
+assert.ok(env.DB.raw.prepare("SELECT 1 FROM messages WHERE id = 'Z1'").get(), 'ticked item kept for the record');
+
 // speed: 30k messages over 260 chats, then one inbox load
 const ins = env.DB.raw.prepare('INSERT INTO messages (id, received_at, t, event, chat, is_group, from_me, sender, sender_name, type, text, tag) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');
 env.DB.raw.exec('BEGIN');

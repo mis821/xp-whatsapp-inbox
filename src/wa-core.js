@@ -10,6 +10,9 @@
 
     var DAYS_BACK = 2;
     var PER_CHAT = 60;
+    var CHECK_DAYS = 7;          // chats active this recently are compared for deleted messages
+    var DEEP = 400;              // messages compared in a chat that has items on the dashboard's lists
+    var RECHECK_MIN = 30;        // compare again this often while the tab stays open
 
     function emit(rows) { if (rows.length) document.dispatchEvent(new CustomEvent('xpwa-rows', { detail: JSON.stringify(rows) })); }
     function status(s) { document.dispatchEvent(new CustomEvent('xpwa-status', { detail: s })); }
@@ -81,32 +84,102 @@
                   type: c.isVideo ? 'video call' : 'call', text: (c.isVideo ? 'Video call' : 'Call') + ' received', mentions: '', reply_to: '' }]);
         });
       } catch (e) { /* older WA-JS without call events — messages still flow */ }
-      backfill();
+      // Deleted for everyone: WhatsApp tells us which message it was.
+      try {
+        WPP.on('chat.msg_revoke', function (e) {
+          var k = e && e.refId, id = k && (k.id || (typeof k === 'string' ? k.split('_')[2] : ''));
+          if (id) bridge('/wa-deletes', 'POST', { msgs: [{ id: String(id).slice(0, 120) }] });
+        });
+      } catch (e) { /* the next comparison still catches it */ }
+      // A whole chat deleted: checked again after a moment, because WhatsApp also briefly removes a
+      // chat when it moves a person from a phone-number id to a LID id.
+      try {
+        WPP.whatsapp.ChatStore.on('remove', function (c) {
+          var jid = wid(c && c.id);
+          if (!jid) return;
+          setTimeout(async function () {
+            var present = await presentUsers();
+            if (present && !present[jid.split('@')[0]]) bridge('/wa-deletes', 'POST', { chats: [jid] });
+          }, 15000);
+        });
+      } catch (e) { /* the next comparison still catches it */ }
+      backfill(true);
+      setInterval(function () { backfill(false); }, RECHECK_MIN * 60000);
       startReplies();
     }
 
-    // What arrived while this page was closed: every chat active in the last two days.
-    async function backfill() {
-      var since = Date.now() / 1000 - DAYS_BACK * 86400;
+    // Everyone WhatsApp Web has a chat with, by number / LID / group id. A person can appear under
+    // either a phone number or a LID, so both are collected. Null while WhatsApp is still loading.
+    async function presentUsers() {
+      var chats = [];
+      try { chats = await WPP.chat.list(); } catch (e) { return null; }
+      if (chats.length < 20) return null;
+      var set = {};
+      var add = function (w) { var s = wid(w); if (s) set[s.split('@')[0]] = 1; };
+      chats.forEach(function (c) {
+        add(c.id);
+        try {
+          var ct = c.contact;
+          if (ct) { add(ct.phoneNumber || (ct.attributes && ct.attributes.phoneNumber)); add(ct.lid || (ct.attributes && ct.attributes.lid)); }
+        } catch (e) { /* ignore */ }
+      });
+      return set;
+    }
+
+    // What arrived while this page was closed (every chat active in the last two days), and what
+    // was deleted on WhatsApp: for each chat, the ids WhatsApp still has between its oldest and
+    // newest loaded message go to the dashboard, which removes whatever it holds in that window
+    // that is no longer there. `withRows` = also send the messages (only on page load).
+    var checking = false;
+    async function backfill(withRows) {
+      if (checking) return;
+      checking = true;
+      try { await compare(withRows); } catch (e) { /* next round */ }
+      checking = false;
+      status('live ✓');
+    }
+    async function compare(withRows) {
+      var now = Date.now() / 1000, since = now - DAYS_BACK * 86400, checkSince = now - CHECK_DAYS * 86400;
       var chats = [];
       try { chats = await WPP.chat.list(); } catch (e) { status('live ✓ (earlier messages could not be loaded)'); return; }
-      chats = chats.filter(function (c) { return (c.t || 0) >= since; });
-      var done = 0, total = 0;
-      for (var i = 0; i < chats.length; i++) {
-        var c = chats[i];
+      var known = {};
+      try {
+        var k = await bridge('/wa-check', 'GET');
+        if (k.status === 200) (JSON.parse(k.body).chats || []).forEach(function (c) { known[c.chat] = c; });
+      } catch (e) { /* compare recent chats only */ }
+      var list = chats.filter(function (c) { var j = known[wid(c.id)]; return (c.t || 0) >= checkSince || (j && j.flagFrom); });
+      var snaps = [], done = 0;
+      for (var i = 0; i < list.length; i++) {
+        var c = list[i], jid = wid(c.id), kc = known[jid];
         try {
-          var msgs = await WPP.chat.getMessages(c.id, { count: PER_CHAT });
+          var msgs = await WPP.chat.getMessages(c.id, { count: kc && kc.flagFrom ? DEEP : PER_CHAT });
           var name = c.formattedTitle || c.name || '';
-          var rows = [];
-          msgs.forEach(function (m) { if ((m.t || 0) >= since) { var r = row(m, name); if (r) rows.push(r); } });
-          emit(rows);
-          total += rows.length;
+          if (withRows && (c.t || 0) >= since) {
+            var rows = [];
+            msgs.forEach(function (m) { if ((m.t || 0) >= since) { var r = row(m, name); if (r) rows.push(r); } });
+            emit(rows);
+          }
+          var lo = Infinity, hi = 0, ids = [];
+          msgs.forEach(function (m) {
+            if (!m || !m.id || !m.id.id || !(m.t > 0)) return;
+            lo = Math.min(lo, m.t * 1000); hi = Math.max(hi, m.t * 1000);
+            if (m.type !== 'revoked') ids.push(String(m.id.id).slice(0, 120));   // "This message was deleted" → remove it
+          });
+          if (kc && ids.length && hi > lo) snaps.push({ chat: jid, after: lo, upto: hi, ids: ids });
         } catch (e) { /* skip this chat */ }
         done++;
-        if (done % 10 === 0) status('loading earlier messages: ' + done + '/' + chats.length + ' chats');
+        if (withRows && done % 10 === 0) status('loading earlier messages: ' + done + '/' + list.length + ' chats');
+        if (snaps.length >= 20) { await bridge('/wa-deletes', 'POST', { snaps: snaps }); snaps = []; }
         await new Promise(function (r) { setTimeout(r, 40); });
       }
-      status('live ✓');
+      if (snaps.length) await bridge('/wa-deletes', 'POST', { snaps: snaps });
+      // Whole chats deleted while this page was closed. Skipped if it looks like WhatsApp has not
+      // finished loading its chat list (too few chats, or too many apparently gone at once).
+      var present = await presentUsers();
+      if (present) {
+        var gone = Object.keys(known).filter(function (j) { return known[j].web && !present[j.split('@')[0]]; });
+        if (gone.length && gone.length <= 25) await bridge('/wa-deletes', 'POST', { chats: gone });
+      }
     }
 
     // WA-JS 4 calls its readiness hooks WPP.loader; older releases called them WPP.webpack.

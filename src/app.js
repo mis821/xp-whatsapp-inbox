@@ -847,6 +847,92 @@ async function outboxOut(env) {
 }
 
 // ===================================================================
+// Deleted on WhatsApp → deleted here
+// ===================================================================
+// WhatsApp Web reports three kinds of deletion:
+//   msgs  — a message deleted for everyone (live, or seen as "This message was deleted" on reload);
+//   snaps — "what WhatsApp still has": for one chat, every message id between two times. Anything
+//           stored here in that window that WhatsApp no longer has was deleted ("delete for me");
+//   chats — a whole chat deleted.
+// Removed messages leave every tab, the report and the export. A copy goes to `trash` for 30 days.
+const SNAP_MAX_LOSS = 25;   // a single chat "losing" more than this at once is more likely a loading gap than deletions
+
+// The chats the dashboard holds, for WhatsApp Web to compare against its own list. `web` = the chat
+// id came from WhatsApp Web itself (only those are checked for whole-chat deletion, because
+// WaSender can name the same person differently); `flagFrom` = it has listed items, so WhatsApp
+// Web checks further back in it.
+async function waCheck(env) {
+  const since = Date.now() - KEEP_DAYS * DAY;
+  const rows = (await env.DB.prepare(
+    "SELECT m.chat, MAX(m.event = 'wa-web') AS web, MIN(CASE WHEN f.msg_id IS NOT NULL AND m.t > ? THEN m.t END) AS flagFrom " +
+    'FROM messages m LEFT JOIN flags f ON f.msg_id = m.id ' +
+    "WHERE COALESCE(m.type, '') NOT IN ('call', 'video call') GROUP BY m.chat").bind(since).all()).results;
+  return { chats: rows.map(r => ({ chat: r.chat, web: r.web ? 1 : 0, flagFrom: r.flagFrom || 0 })) };
+}
+
+async function waDeletes(env, b) {
+  b = b || {};
+  const out = { revoked: 0, deleted: 0, chats: 0, skipped: 0 };
+  const revoked = (Array.isArray(b.msgs) ? b.msgs : []).map(m => String((m && m.id) || '')).filter(Boolean).slice(0, 500);
+  if (revoked.length) out.revoked = await purge(env, revoked, 'revoked');
+
+  const snaps = (Array.isArray(b.snaps) ? b.snaps : []).slice(0, 60)
+    .filter(s => s && s.chat && Array.isArray(s.ids) && s.ids.length && Number(s.after) > 0 && Number(s.upto) > Number(s.after))
+    .map(s => ({ chat: String(s.chat), after: Number(s.after), upto: Number(s.upto), ids: s.ids.map(String) }));
+  if (snaps.length) {
+    const lost = (await env.DB.prepare(
+      'SELECT m.id, m.chat FROM json_each(?) s JOIN messages m ON m.chat = json_extract(s.value, \'$.chat\') ' +
+      "AND m.t > json_extract(s.value, '$.after') AND m.t <= json_extract(s.value, '$.upto') " +
+      "WHERE m.id NOT IN (SELECT value FROM json_each(json_extract(s.value, '$.ids'))) " +
+      "AND COALESCE(m.event, '') <> 'call' AND COALESCE(m.type, '') NOT IN ('call', 'video call')")
+      .bind(JSON.stringify(snaps)).all()).results;
+    const perChat = {};
+    lost.forEach(r => { (perChat[r.chat] = perChat[r.chat] || []).push(r.id); });
+    let ids = [];
+    Object.keys(perChat).forEach(c => {
+      if (perChat[c].length > SNAP_MAX_LOSS) out.skipped += perChat[c].length; else ids = ids.concat(perChat[c]);
+    });
+    if (ids.length) out.deleted = await purge(env, ids, 'deleted');
+  }
+
+  const chats = (Array.isArray(b.chats) ? b.chats : []).map(String).filter(Boolean).slice(0, 30);
+  if (chats.length) {
+    // Only chats WhatsApp Web itself has reported (see waCheck).
+    const known = (await env.DB.prepare("SELECT DISTINCT chat FROM messages WHERE event = 'wa-web' AND chat IN (SELECT value FROM json_each(?))")
+      .bind(JSON.stringify(chats)).all()).results.map(r => r.chat);
+    if (known.length) {
+      const ids = (await env.DB.prepare('SELECT id FROM messages WHERE chat IN (SELECT value FROM json_each(?))')
+        .bind(JSON.stringify(known)).all()).results.map(r => r.id);
+      await purge(env, ids, 'chat');
+      const j = JSON.stringify(known);
+      await env.DB.batch([
+        env.DB.prepare('DELETE FROM flags WHERE chat IN (SELECT value FROM json_each(?))').bind(j),
+        env.DB.prepare('DELETE FROM chats WHERE jid IN (SELECT value FROM json_each(?))').bind(j)
+      ]);
+      out.chats = known.length;
+    }
+  }
+  return out;
+}
+
+// Removes messages (and their list entries) everywhere, keeping a 30-day copy in `trash`.
+async function purge(env, ids, why) {
+  if (!ids.length) return 0;
+  const j = JSON.stringify(ids), now = Date.now();
+  const res = await env.DB.batch([
+    env.DB.prepare('INSERT OR REPLACE INTO trash (id, deleted_at, why, msg, flag) SELECT m.id, ?, ?, ' +
+      "json_object('id', m.id, 'received_at', m.received_at, 't', m.t, 'event', m.event, 'chat', m.chat, 'is_group', m.is_group, " +
+      "'from_me', m.from_me, 'sender', m.sender, 'sender_phone', m.sender_phone, 'sender_name', m.sender_name, 'type', m.type, " +
+      "'text', m.text, 'mentions', m.mentions, 'reply_to', m.reply_to, 'tag', m.tag), " +
+      "(SELECT json_object('chat', f.chat, 't', f.t, 'reasons', f.reasons, 'done_at', f.done_at) FROM flags f WHERE f.msg_id = m.id) " +
+      'FROM messages m WHERE m.id IN (SELECT value FROM json_each(?))').bind(now, why, j),
+    env.DB.prepare('DELETE FROM flags WHERE msg_id IN (SELECT value FROM json_each(?))').bind(j),
+    env.DB.prepare('DELETE FROM messages WHERE id IN (SELECT value FROM json_each(?))').bind(j)
+  ]);
+  return (res[2] && res[2].meta && res[2].meta.changes) || (res[2] && res[2].changes) || 0;
+}
+
+// ===================================================================
 // Report for the directors — what came in, what was handled, how fast
 // ===================================================================
 function kindOf(reasons) {
@@ -1391,6 +1477,17 @@ export function makeWorker(inboxHtml, userScript, coreScript) {
           if (req.method === 'GET') return json({ items: await outboxClaim(env) });
           if (req.method === 'POST') return json({ ok: await outboxAck(env, await req.json()) });
         }
+        // WhatsApp Web reports what was deleted there, and asks which chats to compare. Same token.
+        if (p === '/wa-check' || p === '/wa-deletes') {
+          const token = await secretSetting(env, 'webhook_token');
+          if (!safeEq(url.searchParams.get('token') || '', token)) return new Response('forbidden', { status: 401 });
+          if (p === '/wa-check' && req.method === 'GET') return json(await waCheck(env));
+          if (p === '/wa-deletes' && req.method === 'POST') {
+            let body;
+            try { body = await req.json(); } catch (e) { return new Response('bad json', { status: 400 }); }
+            return json(await waDeletes(env, body));
+          }
+        }
         // The in-page half of the WhatsApp Web script; the loader fetches it with the webhook token.
         if (p === '/wa-core.js' && req.method === 'GET') {
           const token = await secretSetting(env, 'webhook_token');
@@ -1467,7 +1564,8 @@ export function makeWorker(inboxHtml, userScript, coreScript) {
         // Owners) stays, with its flag, for good — that is the record the directors' report is built on.
         await env.DB.prepare('DELETE FROM messages WHERE received_at < ? AND id NOT IN (SELECT msg_id FROM flags)').bind(cut).run();
         await env.DB.batch([env.DB.prepare('DELETE FROM sessions WHERE last_active < ?').bind(Date.now() - DAY),
-          env.DB.prepare('DELETE FROM challenges WHERE exp < ?').bind(Date.now())]);
+          env.DB.prepare('DELETE FROM challenges WHERE exp < ?').bind(Date.now()),
+          env.DB.prepare('DELETE FROM trash WHERE deleted_at < ?').bind(Date.now() - 30 * DAY)]);
         await syncNames(env, true);
       } else if (cron === '0 */6 * * *') {
         await syncNames(env, false);

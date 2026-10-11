@@ -317,6 +317,59 @@ env.DB.raw.prepare("UPDATE messages SET received_at = ? WHERE id = 'Z1'").run(no
 await worker.scheduled({ cron: '0 21 * * *' }, env, ctx);
 assert.ok(env.DB.raw.prepare("SELECT 1 FROM messages WHERE id = 'Z1'").get(), 'ticked item kept for the record');
 
+// ---------- deleted on WhatsApp → deleted here ----------
+{
+  const T = Date.now() - 3600000;
+  const R = (id, chat, mins, text, extra = {}) => Object.assign({ id, t: T + mins * 60000, chat, chat_name: 'XPP | Delete Test', from_me: 0,
+    sender: '918888800001@s.whatsapp.net', sender_phone: '918888800001', sender_name: 'Ravi Dutt', type: 'text', text, mentions: '', reply_to: '' }, extra);
+  const rowsIn = rows => req(hook, { method: 'POST', body: JSON.stringify({ event: 'xp.rows', data: { rows } }) });
+  await rowsIn([R('D1', 'DG@g.us', 1, 'Neeraj ji please check'), R('D2', 'DG@g.us', 2, 'when sitting again, Neeraj?'), R('D3', 'DG@g.us', 3, 'ok'),
+    R('D4', 'DG@g.us', 4, 'payment kab hoga'), R('D5', 'DG@g.us', 5, 'later'),
+    R('E1', '919000000001@s.whatsapp.net', 1, 'Neeraj sir hello', { chat_name: 'Someone' }), R('E2', '919000000001@s.whatsapp.net', 2, 'payment please', { chat_name: 'Someone' })]);
+  const tok2 = new URL(setup.webhookUrl).searchParams.get('token');
+  const del = async body => (await req('/wa-deletes?token=' + tok2, { method: 'POST', body: JSON.stringify(body) })).json();
+  const has = id => !!env.DB.raw.prepare('SELECT 1 FROM messages WHERE id = ?').get(id);
+  const flagged = id => !!env.DB.raw.prepare('SELECT 1 FROM flags WHERE msg_id = ?').get(id);
+  assert.ok(flagged('D2') && flagged('D4'), 'test items listed');
+  assert.equal((await req('/wa-deletes?token=nope', { method: 'POST', body: '{}' })).status, 401, 'needs the token');
+  const chk = await (await req('/wa-check?token=' + tok2)).json();
+  const dg = chk.chats.find(c => c.chat === 'DG@g.us');
+  assert.ok(dg && dg.web === 1 && dg.flagFrom > 0, 'check lists the chat as WhatsApp Web’s, with listed items');
+  // deleted for everyone
+  assert.equal((await del({ msgs: [{ id: 'D2' }] })).revoked, 1);
+  assert.ok(!has('D2') && !flagged('D2'), 'revoked message gone from messages and lists');
+  assert.ok(!(await rpc('getWaInbox', 2)).flags.some(f => f.id === 'D2'), 'and from the Priority tab');
+  assert.equal(JSON.parse(env.DB.raw.prepare("SELECT msg FROM trash WHERE id = 'D2'").get().msg).text, 'when sitting again, Neeraj?', '30-day copy kept');
+  // deleted for me: WhatsApp still has D1, D3, D5 between minute 1 and 5 → D4 goes; nothing outside the window is touched
+  let r2 = await del({ snaps: [{ chat: 'DG@g.us', after: T + 1 * 60000, upto: T + 5 * 60000, ids: ['D1', 'D3', 'D5'] }] });
+  assert.equal(r2.deleted, 1);
+  assert.ok(has('D1') && has('D3') && has('D5') && !has('D4') && !flagged('D4'));
+  // the window's own edges: the oldest loaded message's second is not judged (another one may share it)
+  r2 = await del({ snaps: [{ chat: 'DG@g.us', after: T + 1 * 60000, upto: T + 3 * 60000, ids: ['D3'] }] });
+  assert.ok(has('D1') && has('D3') && has('D5'), 'only messages strictly inside the window are judged');
+  // calls are never in WhatsApp's message list, so they are never removed this way
+  await req(hook, { method: 'POST', body: JSON.stringify({ event: 'call', data: { call: { id: 'CD', from: 'DG@g.us', date: new Date(T + 150000).toISOString(), status: 'offer' } } }) });
+  // a chat "losing" more than 25 at once is treated as a loading gap
+  await rowsIn(Array.from({ length: 30 }, (_, i) => R('B' + i, 'BIG@g.us', 10 + i * 0.1, 'msg ' + i)));
+  r2 = await del({ snaps: [{ chat: 'BIG@g.us', after: T + 9 * 60000, upto: T + 20 * 60000, ids: ['zzz'] }] });
+  assert.equal(r2.deleted, 0); assert.equal(r2.skipped, 30);
+  // empty or broken snapshots do nothing
+  r2 = await del({ snaps: [{ chat: 'BIG@g.us', after: 0, upto: T + 20 * 60000, ids: ['x'] }, { chat: 'BIG@g.us', after: T, upto: T + 20 * 60000, ids: [] }] });
+  assert.equal(r2.deleted, 0);
+  assert.equal(env.DB.raw.prepare("SELECT COUNT(*) AS n FROM messages WHERE chat = 'BIG@g.us'").get().n, 30);
+  // whole chat deleted — only chats WhatsApp Web itself reported (a WaSender-only id is left alone)
+  const wsOnly = env.DB.raw.prepare("SELECT chat FROM messages GROUP BY chat HAVING MAX(event = 'wa-web') = 0 LIMIT 1").get().chat;
+  r2 = await del({ chats: ['919000000001@s.whatsapp.net', wsOnly] });
+  assert.equal(r2.chats, 1);
+  assert.ok(!has('E1') && !has('E2') && !flagged('E1') && !flagged('E2'));
+  assert.ok(env.DB.raw.prepare('SELECT COUNT(*) AS n FROM messages WHERE chat = ?').get(wsOnly).n > 0, 'WaSender-only chat untouched');
+  assert.ok(!(await rpc('getWaInbox', 2)).chats.some(c => c.jid === '919000000001@s.whatsapp.net'), 'deleted chat gone from All Chats');
+  // the nightly clean-up empties the trash after 30 days
+  env.DB.raw.prepare('UPDATE trash SET deleted_at = ?').run(Date.now() - 31 * 86400000);
+  await worker.scheduled({ cron: '0 21 * * *' }, env, ctx);
+  assert.equal(env.DB.raw.prepare('SELECT COUNT(*) AS n FROM trash').get().n, 0);
+}
+
 // ---------- lock and fingerprint sign-in ----------
 const ORIGIN = 'https://wa.example.workers.dev';
 const sid = c => decodeURIComponent(c.split('=')[1]).split('.')[0];

@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: list or update
+        description: list, update or sessions
         required: true
         default: list
       id:
@@ -16,6 +16,9 @@ on:
         required: false
       reply:
         description: Note shown on the request card (update only)
+        required: false
+      sessions:
+        description: JSON list of conversations [{"id","title"}] (sessions only)
         required: false
 
 jobs:
@@ -45,4 +48,5 @@ jobs:
           ID: ${{ inputs.id }}
           STATUS: ${{ inputs.status }}
           REPLY: ${{ inputs.reply }}
+          SESSIONS: ${{ inputs.sessions }}
         run: node scripts/requests.mjs

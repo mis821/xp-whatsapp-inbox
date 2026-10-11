@@ -26,6 +26,9 @@ Cloudflare Workers, with data in a Cloudflare D1 database (free plan).
 - **Fingerprint sign-in:** ⚙️ Setup → Security → enter the dashboard password → **Add fingerprint**. The sign-in page then offers **"Sign in with fingerprint"** (Windows Hello). The password always remains available as a fallback.
 - Windows Hello also accepts the laptop's Windows Hello PIN in place of the fingerprint; keep that PIN private.
 
+## 🤖 Claude tab
+Write work requests for Claude on the dashboard. Every hour Claude reads new requests (through the **Claude requests** workflow), asks for confirmation in the Claude conversation, and starts only after it is confirmed there; progress and the result appear on the request's card. The **💬 Claude** button opens the conversation directly.
+
 ## Setup (once)
 1. **Cloudflare account (free):** https://dash.cloudflare.com/sign-up — open **Workers & Pages** once so the `*.workers.dev` address is created.
 2. **API token:** My Profile → API Tokens → Create Token → template **"Edit Cloudflare Workers"**, add **Account → D1 → Edit**. Note the **Account ID** shown on Workers & Pages.

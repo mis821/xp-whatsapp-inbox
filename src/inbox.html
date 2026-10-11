@@ -267,6 +267,7 @@
     <button class="tab" data-view="review">🌆 Daily Review</button>
     <button class="tab" data-view="inbox">💬 All Chats</button>
     <button class="tab" data-view="report">📊 Report</button>
+    <button class="tab" data-view="claude">🤖 Claude <span class="badge" id="b-claude"></span></button>
     <button class="tab" data-view="setup">⚙️ Setup</button>
     <span class="right">
       <span class="who" id="who"></span>
@@ -359,6 +360,21 @@
       <button class="btn" onclick="window.print()">🖨 Print / PDF</button>
     </div>
     <div id="report"><div class="empty">Loading…</div></div>
+  </section>
+
+  <!-- ============ CLAUDE ============ -->
+  <section id="v-claude" hidden>
+    <p class="viewnote">Write any work you want Claude to do — a change to this dashboard, a report, a check of the data. Every hour Claude reads new
+      requests and asks you to <b>confirm in the Claude conversation</b> before starting; the result is written back here. For something urgent, open the conversation directly.</p>
+    <div class="card">
+      <textarea id="cq" rows="3" placeholder="For example: Add a filter for supplier groups to the Priority tab." style="resize:vertical"></textarea>
+      <div class="due" style="margin-top:8px">
+        <button class="btn pri" id="cqSend">➤ Send to Claude</button>
+        <a class="btn" id="cqOpen" target="_blank" rel="noopener" href="https://claude.ai/code/session_01633qPBih7qj2wrMfaYWGTn">💬 Open Claude conversation</a>
+      </div>
+    </div>
+    <div class="topbar" id="ctiles"></div>
+    <div id="clist"><div class="empty">Loading…</div></div>
   </section>
 
   <!-- ============ SETUP ============ -->
@@ -1606,14 +1622,49 @@
     }).catch(function () {});
   }
 
+  // ---------- CLAUDE (work requests) ----------
+  var CREQ_LABEL = { 'new': '⏳ Waiting — Claude reads new requests every hour', asked: '❓ Please confirm in the Claude conversation',
+                     working: '⚙️ Claude is working on it', done: '✓ Done', failed: '⚠ Could not be completed', cancelled: 'Cancelled' };
+  var CREQ_EDGE = { 'new': 'k-soon', asked: 'k-today', working: 'k-today', done: 'k-done', failed: 'k-over', cancelled: 'is-done' };
+  var CREQ_PILL = { 'new': 'r-soft', asked: 'r-tag', working: 'r-tag', done: 'r-payment', failed: 'r-over', cancelled: 'r-soft' };
+  function openRequests(items) { var c = 0; items.forEach(function (r) { if (/^(new|asked|working)$/.test(r.status)) c++; }); return c; }
+  function loadClaude() {
+    rpc('getClaudeRequests', [], renderClaude, function (e) { $('clist').innerHTML = '<div class="banner red">' + esc(e.message) + '</div>'; });
+  }
+  function renderClaude(x) {
+    $('cqOpen').href = x.session;
+    var n = { 'new': 0, asked: 0, working: 0, done: 0, failed: 0 };
+    x.items.forEach(function (r) { if (n[r.status] !== undefined) n[r.status]++; });
+    $('b-claude').textContent = openRequests(x.items) || '';
+    $('ctiles').innerHTML = '<div class="stats-line"><span class="s s-today">Waiting<b>' + n['new'] + '</b></span>' +
+      '<span class="s s-tag">To confirm<b>' + n.asked + '</b></span><span class="s s-task">In progress<b>' + n.working + '</b></span>' +
+      '<span class="s s-pay">Done<b>' + n.done + '</b></span>' + (n.failed ? '<span class="s s-over">Not completed<b>' + n.failed + '</b></span>' : '') + '</div>';
+    $('clist').innerHTML = x.items.length ? '<div class="grid">' + x.items.map(function (r) {
+      return '<div class="pcard ' + (CREQ_EDGE[r.status] || '') + '">' +
+        '<div class="card-top"><span class="supplier">Request ' + esc(r.id) + '</span><span class="po-date">' + fmtTime(r.created) + '</span></div>' +
+        '<div class="msgtext" style="white-space:pre-wrap">' + esc(r.text) + '</div>' +
+        '<div class="pills"><span class="badge-pill ' + (CREQ_PILL[r.status] || 'r-soft') + '">' + esc(CREQ_LABEL[r.status] || r.status) + '</span></div>' +
+        (r.reply ? '<div class="dfull" style="font-size:13px">' + esc(r.reply) + '<div class="meta">Claude · ' + fmtTime(r.updated) + '</div></div>' : '') +
+        (r.status === 'new' || r.status === 'asked' ? '<div class="card-actions"><button class="bigbtn grey" data-act="creq-cancel" data-id="' + esc(r.id) + '">Cancel request</button></div>' : '') +
+        '</div>';
+    }).join('') + '</div>' : '<div class="empty">No requests yet.</div>';
+  }
+  $('cqSend').addEventListener('click', function () {
+    var t = $('cq').value.trim();
+    if (!t) { $('cq').focus(); return; }
+    call('addClaudeRequest', [t], function () { $('cq').value = ''; toast('➤ Sent — Claude will ask you to confirm within the hour'); loadClaude(); }, this);
+  });
+  rpc('getClaudeRequests', [], function (x) { $('b-claude').textContent = openRequests(x.items) || ''; });
+
   // ---------- view switching ----------
   function setView(v) {
     VIEW = v;
     store('view', v);
     document.querySelectorAll('nav.views .tab').forEach(function (b) { b.classList.toggle('active', b.dataset.view === v); });
-    ['zaroori', 'tasks', 'owners', 'inbox', 'kaam', 'review', 'report', 'setup'].forEach(function (k) { $('v-' + k).hidden = k !== v; });
+    ['zaroori', 'tasks', 'owners', 'inbox', 'kaam', 'review', 'report', 'claude', 'setup'].forEach(function (k) { $('v-' + k).hidden = k !== v; });
     if (v === 'setup') loadSetup();
     if (v === 'report') loadReport();
+    if (v === 'claude') loadClaude();
     if (D && !narrow()) renderDetail();
   }
   function setFilter(f) {
@@ -1672,6 +1723,7 @@
     else if (a === 'kaam-flag') kaamFromFlag(id);
     else if (a === 'sync') call('syncWaNames', [], function (n) { toast(n + ' group names refreshed'); loadSetup(); load(true); }, el);
     else if (a === 'lock-now') lockNow();
+    else if (a === 'creq-cancel') { if (confirm('Cancel this request?')) call('cancelClaudeRequest', [id], function () { toast('Request cancelled'); loadClaude(); }, el); }
     else if (a === 'idle-allow') allowDetector();
     else if (a === 'idle-later') { SEC.hintHidden = true; renderLockHint(); }
     else if (a === 'pk-add') addFingerprint(el);

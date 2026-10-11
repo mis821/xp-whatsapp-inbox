@@ -933,6 +933,33 @@ async function purge(env, ids, why) {
 }
 
 // ===================================================================
+// Requests for Claude (the 🤖 Claude tab)
+// ===================================================================
+// The dashboard only stores them. Every hour Claude reads new ones through the "Claude requests"
+// GitHub workflow, asks for confirmation in the Claude conversation, and only then does the work;
+// its progress and result are written back the same way.
+export const CLAUDE_SESSION_URL = 'https://claude.ai/code/session_01633qPBih7qj2wrMfaYWGTn';
+async function getRequests(env) {
+  return { session: CLAUDE_SESSION_URL, items: (await env.DB.prepare(
+    "SELECT id, created, text, status, reply, updated FROM requests WHERE status IN ('new', 'asked', 'working') OR created > ? " +
+    'ORDER BY created DESC LIMIT 200').bind(Date.now() - 60 * DAY).all()).results };
+}
+async function addRequest(env, text) {
+  text = String(text || '').trim();
+  if (!text) throw new Error('Please write what needs to be done.');
+  if (text.length > 4000) throw new Error('Please keep a request under 4,000 characters.');
+  const id = randomHex(4);
+  await env.DB.prepare("INSERT INTO requests (id, created, text, status) VALUES (?, ?, ?, 'new')").bind(id, Date.now(), text).run();
+  return id;
+}
+async function cancelRequest(env, id) {
+  const r = await env.DB.prepare("UPDATE requests SET status = 'cancelled', updated = ? WHERE id = ? AND status IN ('new', 'asked')")
+    .bind(Date.now(), String(id || '')).run();
+  if (!r.meta.changes) throw new Error('Claude has already started on this request, so it cannot be cancelled here.');
+  return true;
+}
+
+// ===================================================================
 // Report for the directors — what came in, what was handled, how fast
 // ===================================================================
 function kindOf(reasons) {
@@ -1186,6 +1213,9 @@ const RPC = {
   getWaSecurity: (env) => getSecurity(env),
   setWaLockMinutes: async (env, a) => { await setSetting(env, 'lock_minutes', lockMinutes(a[0])); return lockMinutes(a[0]); },
   touchWa: () => true,
+  getClaudeRequests: (env) => getRequests(env),
+  addClaudeRequest: (env, a) => addRequest(env, a[0]),
+  cancelClaudeRequest: (env, a) => cancelRequest(env, a[0]),
   passkeyRegOptions: (env, a, origin) => passkeyRegOptions(env, a[0], origin),
   passkeyRegister: (env, a, origin) => passkeyRegister(env, a[0], origin),
   removePasskey: async (env, a) => { await env.DB.prepare('DELETE FROM passkeys WHERE id = ?').bind(String(a[0] || '')).run(); return true; }

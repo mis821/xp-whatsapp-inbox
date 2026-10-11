@@ -1,0 +1,48 @@
+# Used by Claude to read the dashboard's 🤖 Claude requests and to write progress back.
+name: Claude requests
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: list or update
+        required: true
+        default: list
+      id:
+        description: Request id (update only)
+        required: false
+      status:
+        description: asked | working | done | failed (update only)
+        required: false
+      reply:
+        description: Note shown on the request card (update only)
+        required: false
+
+jobs:
+  requests:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install -g wrangler@4
+      - name: Point wrangler at the database
+        run: |
+          id=$(wrangler d1 list --json | node -e '
+            let s = ""; process.stdin.on("data", d => s += d).on("end", () => {
+              const db = JSON.parse(s).find(x => x.name === "xp_wa_inbox");
+              console.log(db ? (db.uuid || db.id || db.database_id || "") : "");
+            });')
+          test -n "$id" || { echo "::error::Database xp_wa_inbox not found"; exit 1; }
+          sed -i "s/__D1_DATABASE_ID__/$id/" wrangler.toml
+      - name: Requests
+        env:
+          ACTION: ${{ inputs.action }}
+          ID: ${{ inputs.id }}
+          STATUS: ${{ inputs.status }}
+          REPLY: ${{ inputs.reply }}
+        run: node scripts/requests.mjs

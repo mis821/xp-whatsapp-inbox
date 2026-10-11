@@ -370,6 +370,19 @@ assert.ok(env.DB.raw.prepare("SELECT 1 FROM messages WHERE id = 'Z1'").get(), 't
   assert.equal(env.DB.raw.prepare('SELECT COUNT(*) AS n FROM trash').get().n, 0);
 }
 
+// ---------- requests for Claude ----------
+{
+  await assert.rejects(rpc('addClaudeRequest', '  '), /write what/);
+  const id = await rpc('addClaudeRequest', 'Add a supplier filter');
+  let x = await rpc('getClaudeRequests');
+  assert.ok(x.session.startsWith('https://claude.ai/code/') && x.items[0].id === id && x.items[0].status === 'new');
+  await rpc('cancelClaudeRequest', id);
+  assert.equal((await rpc('getClaudeRequests')).items[0].status, 'cancelled');
+  const id2 = await rpc('addClaudeRequest', 'Second');
+  env.DB.raw.prepare("UPDATE requests SET status = 'working' WHERE id = ?").run(id2);
+  await assert.rejects(rpc('cancelClaudeRequest', id2), /already started/);
+}
+
 // ---------- lock and fingerprint sign-in ----------
 const ORIGIN = 'https://wa.example.workers.dev';
 const sid = c => decodeURIComponent(c.split('=')[1]).split('.')[0];

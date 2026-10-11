@@ -16,6 +16,15 @@ jobs:
         with:
           node-version: '22'
       - run: npm install -g wrangler@4
+      - name: Point wrangler at the database
+        run: |
+          id=$(wrangler d1 list --json | node -e '
+            let s = ""; process.stdin.on("data", d => s += d).on("end", () => {
+              const db = JSON.parse(s).find(x => x.name === "xp_wa_inbox");
+              console.log(db ? (db.uuid || db.id || db.database_id || "") : "");
+            });')
+          test -n "$id" || { echo "::error::Database xp_wa_inbox not found — has Deploy run?"; exit 1; }
+          sed -i "s/__D1_DATABASE_ID__/$id/" wrangler.toml
       - name: Counts
         run: |
           # Print whatever wrangler returns: the rows when it is the usual shape, the raw reply otherwise.

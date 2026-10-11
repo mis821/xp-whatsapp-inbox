@@ -56,6 +56,26 @@
   .pcard.r-tasksys { border-left-color: var(--teal); } .pcard.r-owner { border-left-color: #b45309; }
   .badge-pill.r-tasksys { background: var(--teal); } .badge-pill.r-owner { background: #b45309; }
   .chip.c-owner { color: #b45309; } .chip.c-owner.active { background: #b45309; border-color: #b45309; color: #fff; }
+  /* 70 : 30 — cards on the left, the picked one in full on the right */
+  .split { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 3fr); gap: 14px; align-items: start; }
+  .split .grid { grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
+  .detail { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow: auto; background: #fff;
+            border: 1px solid var(--line); border-top: 4px solid var(--brand); border-radius: 10px; padding: 14px; }
+  .detail .dempty { color: var(--sub); text-align: center; padding: 40px 10px; line-height: 1.6; }
+  .dfull { font-size: 15px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; background: var(--soft);
+           border-radius: 8px; padding: 10px 12px; margin: 10px 0; }
+  .ctx { display: flex; flex-direction: column; gap: 6px; }
+  .bub { background: var(--soft); border-radius: 8px; padding: 6px 9px; font-size: 13px; line-height: 1.45; word-break: break-word; }
+  .bub.me { background: var(--me-bg); margin-left: 18px; }
+  .bub.focus { background: var(--tag-bg); box-shadow: inset 3px 0 0 var(--tag-line); }
+  .bub .bh { font-size: 11px; color: var(--sub); margin-bottom: 2px; }
+  .rem-list { font-size: 12px; color: var(--sub); margin: 4px 0 0; padding-left: 18px; }
+  .pcard { cursor: pointer; }
+  .pcard.sel { outline: 3px solid var(--blue); outline-offset: -1px; }
+  @media (max-width: 900px) {
+    .split { grid-template-columns: 1fr; }
+    .split .detail { display: none; }
+  }
   a.bigbtn { display: block; text-align: center; text-decoration: none; box-sizing: border-box; }
   .topbar .total { font-weight: 700; }
 
@@ -264,7 +284,7 @@
     </div>
     <div class="chips" id="zchips"></div>
     <div class="count" id="zcount"></div>
-    <div id="zlist"><div class="empty">Load ho raha hai…</div></div>
+    <div class="split"><div id="zlist"><div class="empty">Load ho raha hai…</div></div><aside class="detail" id="zdetail"></aside></div>
   </section>
 
   <!-- ============ TASK LIST (company task system reminders) ============ -->
@@ -274,7 +294,7 @@
     <div class="toolbar"><input type="search" id="tq" placeholder="Task dhundho…"></div>
     <div class="chips" id="tchips"></div>
     <div class="count" id="tcount"></div>
-    <div id="tlist"></div>
+    <div class="split"><div id="tlist"></div><aside class="detail" id="tdetail"></aside></div>
   </section>
 
   <!-- ============ OWNERS ============ -->
@@ -284,7 +304,7 @@
     <div class="toolbar"><input type="search" id="oq" placeholder="Group ya message dhundho…"></div>
     <div class="chips" id="ochips"></div>
     <div class="count" id="ocount"></div>
-    <div id="olist"></div>
+    <div class="split"><div id="olist"></div><aside class="detail" id="odetail"></aside></div>
   </section>
 
   <section id="v-inbox" hidden>
@@ -483,6 +503,7 @@
     renderTaskList();
     renderOwners();
     renderInbox();
+    if (!narrow()) renderDetail();
     renderKaam();
     renderReview();
   }
@@ -595,7 +616,8 @@
     {
       var lead = f.reasons.indexOf('owner') !== -1 ? 'owner' : f.reasons.indexOf('tag') !== -1 ? 'tag' : f.reasons[0];
       var more = (perChat[f.jid] || 0) - (f.done ? 0 : 1);
-      return '<div class="pcard r-' + lead + (f.done ? ' is-done' : '') + '">' +
+      return '<div class="pcard r-' + lead + (f.done ? ' is-done' : '') + (isSel('flag', f.id) ? ' sel' : '') +
+        '" data-act="pick" data-kind="flag" data-id="' + esc(f.id) + '">' +
         '<div class="card-top"><span class="supplier" title="' + esc(f.chat) + '">' + esc(f.chat) + '</span>' +
           '<span class="po-date">' + fmtTime(f.t) + '</span></div>' +
         '<div class="po-number">' + esc(f.who) + '</div>' +
@@ -604,12 +626,149 @@
         '<div class="pills">' + f.reasons.map(function (r) {
           return '<span class="badge-pill r-' + r + '">' + esc(LABEL[r] || r) + '</span>';
         }).join('') + (f.done ? '<span class="badge-pill r-soft">✓ Ho gaya ' + fmtTime(f.done) + '</span>' : '') + '</div>' +
+        replyStatus(f.id) +
         '<div class="card-actions">' +
+          '<button class="bigbtn teal" data-act="reply" data-id="' + esc(f.id) + '">↩ Reply karo</button>' +
           (f.done ? '<button class="bigbtn grey" data-act="flag-undo" data-id="' + esc(f.id) + '">↩ Wapas laao</button>'
                   : '<button class="bigbtn done" data-act="flag-done" data-id="' + esc(f.id) + '">✓ Ho gaya</button>' +
                     '<button class="bigbtn kaam" data-act="kaam-flag" data-id="' + esc(f.id) + '">+ Kaam banao</button>') +
         '</div></div>';
     }
+  }
+
+  // ---------- DETAIL PANEL (right 30%) ----------
+  var SEL = {};            // view -> {kind, id}
+  var CTX = {};            // msg id -> getWaContext result
+  function isSel(kind, id) { var s = SEL[VIEW]; return !!s && s.kind === kind && s.id === id; }
+  function panelId() { return { zaroori: 'zdetail', tasks: 'tdetail', owners: 'odetail' }[VIEW]; }
+  function narrow() { return window.matchMedia('(max-width: 900px)').matches; }
+  function pick(kind, id) {
+    SEL[VIEW] = { kind: kind, id: id };
+    document.querySelectorAll('.pcard.sel').forEach(function (c) { c.classList.remove('sel'); });
+    var sel = kind === 'task' ? '[data-k="' + CSS.escape(id) + '"]' : '[data-id="' + CSS.escape(id) + '"]';
+    var card = document.querySelector('#v-' + VIEW + ' .pcard' + sel);
+    if (card) card.classList.add('sel');
+    renderDetail(true);
+  }
+  function renderDetail(fromPick) {
+    var pid = panelId();
+    if (!pid || !D) return;
+    var s = SEL[VIEW];
+    var html = '';
+    if (!s) html = '<div class="dempty">👈 Kisi card pe click kijiye —<br>poora message aur us chat ki baat-cheet yahan dikhegi.</div>';
+    else if (s.kind === 'task') html = taskDetail(s.id);
+    else html = flagDetail(s.id);
+    // On a phone there is no room beside the cards: the same panel opens as a sheet instead —
+    // and only when asked for (a background refresh must not pop it back open).
+    if (narrow()) { if (s && (fromPick || (!$('modal').hidden && !MODAL_SAVE))) openModal('', html, null); return; }
+    $(pid).innerHTML = html;
+  }
+  function ctxHtml(msgId) {
+    var c = CTX[msgId];
+    if (!c) {
+      rpc('getWaContext', [msgId], function (res) { CTX[msgId] = res; renderDetailIfShowing(msgId); },
+          function (e) { CTX[msgId] = { error: e.message }; renderDetailIfShowing(msgId); });
+      return '<div class="dempty">Baat-cheet aa rahi hai…</div>';
+    }
+    if (c.error) return '<div class="meta">' + esc(c.error) + '</div>';
+    return '<div class="ctx">' + c.around.map(function (m) {
+      return '<div class="bub' + (m.me ? ' me' : '') + (m.focus ? ' focus' : '') + '"><div class="bh"><b>' + esc(m.who) + '</b>' +
+        (m.owner ? ' 👑' : '') + ' · ' + fmtTime(m.t) + '</div>' + (TYPE_ICON[m.type] || '') + zHl(m.text || '(' + m.type + ')') + '</div>';
+    }).join('') + '</div>';
+  }
+  function renderDetailIfShowing(msgId) {
+    var s = SEL[VIEW];
+    if (!s) return;
+    var showing = s.kind === 'flag' ? s.id : ((taskGroups().filter(function (g) { return g.key === s.id; })[0] || {}).latest || {}).id;
+    if (showing === msgId) renderDetail();
+  }
+  function fullText(msgId, fallback) {
+    var c = CTX[msgId];
+    return c && c.msg ? c.msg.text : fallback;
+  }
+  var LABELS = { tag: '@ Aapko tag', neeraj: '👤 Neeraj', payment: '💰 Payment' };
+  function flagDetail(id) {
+    var f = flagBy(id);
+    if (!f) return '<div class="dempty">Ye message ab list mein nahi hai.</div>';
+    return '<div class="supplier">' + esc(f.chat) + '</div>' +
+      '<div class="po-number" style="margin-top:4px">' + esc(f.who) + (f.owner ? ' 👑' : '') + '</div>' +
+      '<div class="meta">' + fmtTime(f.t) + (f.done ? ' · ✓ Ho gaya ' + fmtTime(f.done) : '') + '</div>' +
+      '<div class="pills">' + f.reasons.map(function (r) {
+        return '<span class="badge-pill r-' + r + '">' + esc(r === 'owner' ? '👑 ' + (f.owner || 'Owner') : (LABELS[r] || r)) + '</span>';
+      }).join('') + '</div>' +
+      '<div class="dfull">' + (TYPE_ICON[f.type] || '') + zHl(fullText(f.id, f.text) || '(' + f.type + ')') + '</div>' +
+      replyStatus(f.id) +
+      '<div class="card-actions" style="margin-bottom:12px">' +
+        '<button class="bigbtn teal" data-act="reply" data-id="' + esc(f.id) + '">↩ Reply karo</button>' +
+        (f.done ? '<button class="bigbtn grey" data-act="flag-undo" data-id="' + esc(f.id) + '">↩ Wapas laao</button>'
+                : '<div class="btnrow"><button class="bigbtn done" data-act="flag-done" data-id="' + esc(f.id) + '">✓ Ho gaya</button>' +
+                  '<button class="bigbtn kaam" data-act="kaam-flag" data-id="' + esc(f.id) + '">+ Kaam</button></div>') +
+      '</div><div class="sec">💬 Is chat mein aas-paas</div>' + ctxHtml(f.id);
+  }
+  function taskDetail(key) {
+    var g = taskGroups().filter(function (x) { return x.key === key; })[0];
+    if (!g) return '<div class="dempty">Ye task ab list mein nahi hai.</div>';
+    var i = g.info, isDone = !g.open.length;
+    return '<div class="supplier">' + esc(i.whose ? i.whose + ' ka task' : 'Task system') + '</div>' +
+      '<div class="po-number" style="margin-top:4px">' + esc(i.title) + '</div>' +
+      (i.due ? '<div class="meta">Due tha: <b>' + esc(i.due) + '</b></div>' : '') +
+      '<div class="meta">Reminder aaye: <b>' + g.items.length + ' baar</b></div>' +
+      '<ul class="rem-list">' + g.items.map(function (f) { return '<li>' + fmtTime(f.t) + (f.done ? ' ✓' : '') + '</li>'; }).join('') + '</ul>' +
+      '<div class="dfull">' + zHl(fullText(g.latest.id, g.latest.text)) + '</div>' +
+      '<div class="card-actions" style="margin-bottom:12px">' +
+        (i.url ? '<a class="bigbtn kaam" target="_blank" rel="noopener" href="' + esc(i.url) + '">🔗 Task kholo</a>' : '') +
+        (isDone ? '<button class="bigbtn grey" data-act="task-key-undo" data-k="' + esc(g.key) + '">↩ Wapas laao</button>'
+                : '<button class="bigbtn done" data-act="task-key-done" data-k="' + esc(g.key) + '">✓ Ho gaya</button>') +
+      '</div><div class="sec">💬 ' + esc(g.latest.chat) + '</div>' + ctxHtml(g.latest.id);
+  }
+
+  // ---------- REPLY ----------
+  // Written here, sent by WhatsApp Web as a quoted reply (or by WaSender, unquoted, if that tab is closed).
+  function repliesFor(msgId) { return (D.outbox || []).filter(function (o) { return o.quote === msgId; }); }
+  function replyStatus(msgId) {
+    var rs = repliesFor(msgId);
+    if (!rs.length) return '';
+    return rs.map(function (o) {
+      var st = o.status === 'sent' ? '<b style="color:var(--green)">✓ bhej diya ' + fmtTime(o.sentAt) + (o.via === 'wasender' ? ' (WaSender)' : '') + '</b>'
+             : o.status === 'failed' ? '<b style="color:var(--red)">⚠ nahi gaya</b> ' +
+                 '<button class="btn sm" data-act="reply-wasender" data-id="' + esc(o.id) + '">WaSender se bhejo</button>'
+             : '<b style="color:var(--amber)">⏳ line mein — WhatsApp Web se jayega</b>' +
+                 (D.webLive ? '' : ' <button class="btn sm" data-act="reply-wasender" data-id="' + esc(o.id) + '">Abhi WaSender se bhejo</button>');
+      return '<div class="meta">↩ Aapka reply: "' + esc(o.text.slice(0, 80)) + '" — ' + st + '</div>';
+    }).join('');
+  }
+  var QUICK_REPLIES = ['Ji sir, dekh raha hoon 🙏', 'Kal tak ho jayega', 'Payment process mein hai', 'Accounts ko bol diya hai',
+                       'Aaj shaam tak update deta hoon', 'Ho gaya ✅'];
+  function openReply(id) {
+    var f = flagBy(id);
+    if (!f) return;
+    var live = D.webLive;
+    openModal('↩ Reply — ' + f.chat,
+      '<div class="quote">💬 <b>' + esc(f.who) + '</b>: ' + esc(f.text.slice(0, 500)) + '</div>' +
+      '<label>Aapka jawab</label><textarea id="r-text" rows="4" placeholder="Yahan likhiye…"></textarea>' +
+      '<div class="due" style="margin-top:6px">' + QUICK_REPLIES.map(function (q) {
+        return '<button type="button" class="btn sm" data-act="quick-reply" data-q="' + esc(q) + '">' + esc(q) + '</button>';
+      }).join('') + '</div>' +
+      '<label style="display:flex;gap:6px;align-items:center;font-weight:600;margin-top:10px">' +
+        '<input type="checkbox" id="r-done"' + (f.done ? '' : ' checked') + '> Bhejne ke baad "✓ Ho gaya" kar do</label>' +
+      '<p class="hint">' + (live
+        ? '✅ WhatsApp Web chalu hai — jawab <b>is message ko quote karke</b> office number se ' + (f.group ? 'group' : 'chat') + ' mein ~10 second mein jayega.'
+        : '⚠ WhatsApp Web abhi band lag raha hai. Jawab line mein rahega aur tab khulte hi quote ke saath chala jayega — ' +
+          'ya card pe "Abhi WaSender se bhejo" dabake turant (bina quote) bhej sakte hain.') + '</p>',
+      'Bhejo', function (btn) {
+        var text = $('r-text').value.trim();
+        if (!text) { $('modalErr').textContent = 'Jawab likhiye.'; return; }
+        call('queueWaReply', [{ chat: f.jid, quote: f.id, text: text, flagId: f.id, markDone: $('r-done').checked }], function (res) {
+          D.outbox = [{ id: res.id, created: Date.now(), chat: f.jid, quote: f.id, text: text, status: 'pending', via: '', sentAt: 0, error: '' }]
+            .concat(D.outbox || []);
+          closeModal();
+          toast(res.webLive ? '↩ Line mein — WhatsApp Web 10 sec mein bhej dega' : '↩ Line mein — WhatsApp Web khulte hi jayega');
+          renderZaroori(); renderOwners();
+          // Check back once the WhatsApp Web tab has had time to send it.
+          setTimeout(function () { load(true); }, 20000);
+        }, btn);
+      });
+    setTimeout(function () { var t = $('r-text'); if (t) t.focus(); }, 50);
   }
 
   // ---------- TASK LIST ----------
@@ -661,7 +820,8 @@
     }
     $('tlist').innerHTML = '<div class="grid">' + list.map(function (g) {
       var i = g.info, isDone = !g.open.length, n = g.items.length;
-      return '<div class="pcard r-tasksys' + (isDone ? ' is-done' : '') + '">' +
+      return '<div class="pcard r-tasksys' + (isDone ? ' is-done' : '') + (isSel('task', g.key) ? ' sel' : '') +
+        '" data-act="pick" data-kind="task" data-k="' + esc(g.key) + '">' +
         '<div class="card-top"><span class="supplier">' + esc(i.whose ? i.whose + ' ka task' : 'Task system') + '</span>' +
           '<span class="po-date">' + fmtTime(g.latest.t) + '</span></div>' +
         '<div class="po-number">' + esc(i.title) + '</div>' +
@@ -703,6 +863,7 @@
     var now = Date.now();
     ids.forEach(function (id) { var f = flagBy(id); if (f) f.done = done ? now : 0; });
     renderTiles(); renderZaroori(); renderTaskList(); renderOwners(); renderReview();
+    if (!narrow()) renderDetail(); else if (!$('modal').hidden && !MODAL_SAVE) closeModal();
     call('markWaFlags', [ids, done], function () { toast(done ? '✓ Ho gaya' : 'Wapas list mein'); });
   }
   function kaamFromFlag(id) {
@@ -727,6 +888,7 @@
 
   // ---------- INBOX ----------
   function passes(c) {
+    if (/\bGPS\b/i.test(c.name)) return false;      // vehicle / GPS update groups are never shown
     if (FILTER === 'muted') { if (!c.muted) return false; }
     else if (c.muted && !c.pending) return false;
     if (FILTER === 'reply' && !c.pending) return false;
@@ -1237,6 +1399,7 @@
     document.querySelectorAll('nav.views .tab').forEach(function (b) { b.classList.toggle('active', b.dataset.view === v); });
     ['zaroori', 'tasks', 'owners', 'inbox', 'kaam', 'review', 'setup'].forEach(function (k) { $('v-' + k).hidden = k !== v; });
     if (v === 'setup') loadSetup();
+    if (D && !narrow()) renderDetail();
   }
   function setFilter(f) {
     FILTER = f;
@@ -1268,6 +1431,14 @@
     else if (a === 'cat') changeCategory(jid);
     else if (a === 'zf') { ZF = el.dataset.f; setView('zaroori'); renderZaroori(); }
     else if (a === 'flag-done') markFlags([id], true);
+    else if (a === 'pick') pick(el.dataset.kind, el.dataset.kind === 'task' ? el.dataset.k : id);
+    else if (a === 'reply') openReply(id);
+    else if (a === 'quick-reply') { var ta = $('r-text'); ta.value = (ta.value ? ta.value.trim() + ' ' : '') + el.dataset.q; ta.focus(); }
+    else if (a === 'reply-wasender') {
+      if (confirm('WaSender se abhi bhejein? Isme original message quote nahi hoga.')) {
+        call('sendWaReplyNow', [id], function () { toast('📤 Bhej diya (WaSender)'); load(true); }, el);
+      }
+    }
     else if (a === 'tf') { TF = el.dataset.f; renderTaskList(); }
     else if (a === 'of') { OF = el.dataset.f; renderOwners(); }
     else if (a === 'task-key-done' || a === 'task-key-undo') {

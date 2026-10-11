@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         XP WhatsApp Inbox — sync
 // @namespace    xp-whatsapp-inbox
-// @version      1.1.0
-// @description  WhatsApp Web (office number) ke messages aur calls XP WhatsApp Inbox dashboard ko bhejta hai.
+// @version      1.2.0
+// @description  WhatsApp Web (office number) ke messages XP WhatsApp Inbox dashboard ko bhejta hai, aur dashboard se likhe reply bhejta hai.
 // @match        https://web.whatsapp.com/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_addElement
@@ -18,7 +18,8 @@
  * How it works. WhatsApp Web already has every message on this screen. WA-JS (wppconnect, open
  * source) gives a script a way to ask WhatsApp Web for them: new messages as they arrive, and the
  * last two days' messages of every chat when the page opens. This script turns each one into a
- * flat row and posts it to the dashboard. It only READS — it never sends, deletes or marks anything.
+ * flat row and posts it to the dashboard. The one thing it ever sends is a reply you wrote on the
+ * dashboard yourself (↩ Reply), as a quoted reply from this WhatsApp — nothing is deleted or marked.
  *
  * Two halves, because of where code may run:
  *   - wa-core.js (fetched from the dashboard on every load) runs inside WhatsApp Web's own page —
@@ -91,6 +92,26 @@
     flush();
   });
   document.addEventListener('xpwa-status', function (e) { stage = String(e.detail); badge(); });
+
+  // Bridge: the in-page code (wa-core.js) cannot reach the dashboard itself (WhatsApp Web's security
+  // policy), so it asks here. Only the dashboard's own /wa-… paths, always with this script's token.
+  var BASE = ENDPOINT.split('/webhook?')[0];
+  var TOKEN = (ENDPOINT.match(/[?&]token=([^&]+)/) || [])[1] || '';
+  document.addEventListener('xpwa-fetch', function (e) {
+    var q;
+    try { q = JSON.parse(e.detail); } catch (x) { return; }
+    var reply = function (status, body) {
+      document.dispatchEvent(new CustomEvent('xpwa-fetch-done', { detail: JSON.stringify({ id: q.id, status: status, body: body }) }));
+    };
+    if (!/^\/wa-[a-z-]+$/.test(String(q.path || ''))) return reply(400, '');
+    GM_xmlhttpRequest({
+      method: q.method === 'POST' ? 'POST' : 'GET', url: BASE + q.path + '?token=' + TOKEN, timeout: 30000,
+      headers: { 'Content-Type': 'application/json' }, data: q.body ? JSON.stringify(q.body) : undefined,
+      onload: function (r) { reply(r.status, r.responseText); },
+      onerror: function () { reply(0, ''); }, ontimeout: function () { reply(0, ''); }
+    });
+  });
+  document.documentElement.setAttribute('data-xpwa-bridge', '1');
 
   // ---------- load WA-JS into the page, then pageMain ----------
   function get(url, minLen) {

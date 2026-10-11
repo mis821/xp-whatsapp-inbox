@@ -248,6 +248,61 @@ env.DB.raw.prepare("DELETE FROM settings WHERE k = 'flags_version'").run();
 d = await rpc('getWaInbox', 2);
 assert.deepEqual(zf('R1').reasons, ['tasksys'], 're-checked');
 
+// GPS / vehicle updates never show, whoever sends them.
+const GPS = '🔁 *HR 47 G 9376* is still at *Sona BLW* — *4h 13m* so far (arrived Sun 11 Oct 09:17). no trip ID in the gate app Still there. https://maps.google.com/?q=28.36630,76.93720';
+assert.deepEqual(flagReasons({ is_group: 1, text: GPS, sender_phone: '918447731703' }), [], 'GPS from an owner is still noise');
+assert.deepEqual(flagReasons({ is_group: 1, text: 'Neeraj payment', chat_name: 'X - GPS Data' }), [], 'nothing from a GPS group');
+env.DB.raw.prepare("INSERT INTO chats (jid, name, kind) VALUES ('GPS@g.us', 'X - GPS Data', 'group')").run();
+await post({ event: 'xp.rows', data: { rows: [{ id: 'GPS1', t: now - 3000, chat: 'GPS@g.us', sender: '918447731703@s.whatsapp.net', sender_phone: '918447731703', text: GPS }] } });
+d = await rpc('getWaInbox', 2);
+assert.ok(!zf('GPS1'), 'GPS not flagged');
+// an old flag from before the rule is dropped by the re-check
+env.DB.raw.prepare("INSERT INTO flags (msg_id, chat, t, reasons) VALUES ('GPS1', 'GPS@g.us', ?, 'owner')").run(now - 3000);
+env.DB.raw.prepare("DELETE FROM settings WHERE k = 'flags_version'").run();
+d = await rpc('getWaInbox', 2);
+assert.ok(!zf('GPS1'), 'stale GPS flag dropped');
+
+// Replies: queued on the dashboard, claimed + sent by WhatsApp Web, or sent by WaSender as fallback.
+const ob = new URL(setup.webhookUrl.replace('/webhook?', '/wa-outbox?'));
+const obUrl = ob.pathname + ob.search;
+assert.equal((await req('/wa-outbox?token=nope')).status, 401);
+d = await rpc('getWaInbox', 2);
+assert.equal(d.webLive, false, 'no WhatsApp Web yet');
+await assert.rejects(rpc('queueWaReply', { chat: 'G1@g.us', quote: 'M1', text: '  ' }), /khaali/);
+await assert.rejects(rpc('queueWaReply', { chat: 'nope@g.us', text: 'x' }), /list mein nahi/);
+const q1 = await rpc('queueWaReply', { chat: 'G1@g.us', quote: 'M1', text: 'Ji sir, kal tak', flagId: 'M1', markDone: true });
+let claim = await (await req(obUrl)).json();
+assert.deepEqual(claim.items.map(i => [i.id, i.chat, i.quote, i.text]), [[q1.id, 'G1@g.us', 'M1', 'Ji sir, kal tak']]);
+assert.equal((await (await req(obUrl)).json()).items.length, 0, 'claimed once only');
+d = await rpc('getWaInbox', 2);
+assert.equal(d.webLive, true, 'polling counts as live');
+await req(obUrl, { method: 'POST', body: JSON.stringify({ id: q1.id, ok: true }) });
+d = await rpc('getWaInbox', 2);
+assert.equal(d.outbox.find(o => o.id === q1.id).status, 'sent');
+assert.ok(zf('M1').done > 0, 'flag ticked after the reply went');
+// a WhatsApp Web failure, then the WaSender fallback (personal chat: sent to the number)
+const q2 = await rpc('queueWaReply', { chat: '917777700000@s.whatsapp.net', quote: 'M4', text: 'Ji' });
+claim = await (await req(obUrl)).json();
+await req(obUrl, { method: 'POST', body: JSON.stringify({ id: q2.id, ok: false, error: 'chat not found' }) });
+const sentBefore = sent.length;
+await rpc('sendWaReplyNow', q2.id);
+assert.deepEqual(sent[sentBefore], { to: '+917777700000', text: 'Ji' });
+d = await rpc('getWaInbox', 2);
+assert.equal(d.outbox.find(o => o.id === q2.id).via, 'wasender');
+// a claim nobody answers turns into a failure after 2 minutes
+const q3 = await rpc('queueWaReply', { chat: 'G1@g.us', text: 'x' });
+await req(obUrl);
+env.DB.raw.prepare('UPDATE outbox SET claimed_at = ? WHERE id = ?').run(now - 5 * 60000, q3.id);
+await req(obUrl);
+d = await rpc('getWaInbox', 2);
+assert.equal(d.outbox.find(o => o.id === q3.id).status, 'failed');
+
+// Detail panel: the message in full plus the conversation around it.
+const cx = await rpc('getWaContext', 'Z2');
+assert.equal(cx.msg.text, 'Neeraj sir se baat ho gayi');
+assert.ok(cx.around.some(m => m.focus && m.id === 'Z2') && cx.around.length > 1);
+await assert.rejects(rpc('getWaContext', 'nope'), /nahi mila/);
+
 // speed: 30k messages over 260 chats, then one inbox load
 const ins = env.DB.raw.prepare('INSERT INTO messages (id, received_at, t, event, chat, is_group, from_me, sender, sender_name, type, text, tag) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');
 env.DB.raw.exec('BEGIN');

@@ -82,6 +82,7 @@
         });
       } catch (e) { /* older WA-JS without call events — messages still flow */ }
       backfill();
+      startReplies();
     }
 
     // What arrived while this page was closed: every chat active in the last two days.
@@ -111,6 +112,59 @@
     // WA-JS 4 calls its readiness hooks WPP.loader; older releases called them WPP.webpack.
     var started = false;
     function go() { if (!started) { started = true; start(); } }
+    // ---------- replies written on the dashboard ----------
+    var pendingFetch = {}, fetchSeq = 0;
+    document.addEventListener('xpwa-fetch-done', function (e) {
+      try { var r = JSON.parse(e.detail); var cb = pendingFetch[r.id]; delete pendingFetch[r.id]; if (cb) cb(r); } catch (x) { /* ignore */ }
+    });
+    function bridge(path, method, body) {
+      return new Promise(function (resolve) {
+        var id = ++fetchSeq;
+        pendingFetch[id] = resolve;
+        document.dispatchEvent(new CustomEvent('xpwa-fetch', { detail: JSON.stringify({ id: id, path: path, method: method, body: body }) }));
+        setTimeout(function () { if (pendingFetch[id]) { delete pendingFetch[id]; resolve({ status: 0, body: '' }); } }, 35000);
+      });
+    }
+    // The dashboard stores chats as …@s.whatsapp.net; WhatsApp Web calls them …@c.us.
+    function waChatId(jid) { return String(jid).replace(/@s\.whatsapp\.net$/, '@c.us'); }
+    async function sendOne(item) {
+      var chatId = waChatId(item.chat);
+      var opts = {};
+      if (item.quote) {
+        try {
+          var msgs = await WPP.chat.getMessages(chatId, { count: 400 });
+          for (var i = 0; i < msgs.length; i++) if (msgs[i].id && msgs[i].id.id === item.quote) { opts.quotedMsg = msgs[i].id; break; }
+        } catch (e) { /* send without the quote rather than not at all */ }
+      }
+      await WPP.chat.sendTextMessage(chatId, item.text, opts);
+    }
+    var polling = false;
+    async function pollOutbox() {
+      if (polling) return;
+      polling = true;
+      try {
+        var r = await bridge('/wa-outbox', 'GET');
+        if (r.status === 200) {
+          var items = (JSON.parse(r.body || '{}').items) || [];
+          for (var i = 0; i < items.length; i++) {
+            var ok = true, err = '';
+            try { await sendOne(items[i]); } catch (e) { ok = false; err = (e && e.message) || String(e); }
+            await bridge('/wa-outbox', 'POST', { id: items[i].id, ok: ok, error: err });
+            status(ok ? 'live ✓ · reply bheja' : '⚠ reply nahi gaya: ' + err.slice(0, 60));
+          }
+        }
+      } catch (e) { /* next round */ }
+      polling = false;
+    }
+    function startReplies() {
+      if (document.documentElement.getAttribute('data-xpwa-bridge') !== '1') {
+        status('live ✓ · ↩ Reply ke liye script update kijiye (Setup → script copy karo)');
+        return;
+      }
+      pollOutbox();
+      setInterval(pollOutbox, 8000);
+    }
+
     function waitForWpp(tries) {
       var L = window.WPP && (WPP.loader || WPP.webpack);
       if (L && typeof L.onReady === 'function') {

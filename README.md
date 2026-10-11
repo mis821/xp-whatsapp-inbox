@@ -17,6 +17,9 @@ Ye PO tracker se bilkul alag project hai. Isme koi Google Sheet nahi hai: ye Clo
 - **📋 Task List:** task system (tools.xpertpack.in) ke daily reminders. Har task ka sirf ek card banta hai.
 - **👑 Owners:** Anant Sir, Hitesh Sir aur Raj Kumar Sir ke saare messages. Inke numbers `src/app.js` ki `OWNERS` list mein hain.
 - **✅ Mere Kaam**, **🌆 Shaam ka hisaab**, **💬 Sab chats**, **⚙️ Setup**.
+- Screen 70:30 mein bati hai. Kisi card pe click karne se right side mein poora message, us chat ki aas-paas ki baat-cheet aur saare buttons dikhte hain.
+- **↩ Reply karo:** dashboard pe jawab likhiye. WhatsApp Web us message ko quote karke reply bhej deta hai. Tab band ho to WaSender se bina quote ke bhej sakte hain.
+- GPS / vehicle wale update kahin nahi dikhte.
 
 ## Speed
 Inbox khulte hi sirf list aati hai (har chat ka count aur aakhri message).

@@ -59,8 +59,15 @@ export function ownerOf(phone) {
 //   tasksys  a task-system reminder (Task List tab — and nothing else, even though it names Neeraj)
 //   owner    sent by one of the owners (Owners tab)
 //   tag / neeraj / payment   the Zaroori tab
+// Automatic vehicle/GPS updates ("HR 47 G 9376 is still at Sona BLW — 4h 13m so far … maps link").
+// Never shown anywhere on the dashboard, whoever's number sends them.
+const GPS_RE = /\bis still at\b[\s\S]*\bso far\b|\btrip id in the gate app\b|maps\.google\.[a-z.]+\/\?q=-?\d|\bGPS\b/i;
+export function isNoise(r) {
+  return GPS_RE.test(r.text || '') || /\bGPS\b/i.test(r.chat_name || '');
+}
+
 export function flagReasons(r) {
-  if (r.from_me) return [];
+  if (r.from_me || isNoise(r)) return [];
   if (TASKSYS_RE.test(r.text || '')) return ['tasksys'];
   const out = [];
   if (ownerOf(r.sender_phone)) out.push('owner');
@@ -311,8 +318,11 @@ export async function ingest(env, rows, waitUntil) {
   }
 
   const flags = [];
+  const knownNames = {};
+  (await env.DB.prepare('SELECT jid, name FROM chats WHERE jid IN (SELECT value FROM json_each(?))')
+    .bind(JSON.stringify([...new Set(rows.map(r => r.chat))])).all()).results.forEach(c => { knownNames[c.jid] = c.name || ''; });
   for (const r of rows) {
-    const why = flagReasons(r);
+    const why = flagReasons(Object.assign({}, r, { chat_name: r.chat_name || knownNames[r.chat] || '' }));
     if (why.length) flags.push({ msg_id: r.id, chat: r.chat, t: r.t, reasons: why.join(' ') });
   }
 
@@ -460,7 +470,7 @@ async function selfFilter(env) {
 // when it is opened (getChat) — on a busy day the full set would be megabytes on a phone.
 // Messages stored before the Zaroori list existed (or before a rule changed) get checked once.
 // FLAGS_VERSION goes up whenever flagReasons changes, so old messages are re-checked against it.
-const FLAGS_VERSION = '2';
+const FLAGS_VERSION = '3';
 async function backfillFlags(env) {
   if ((await getSetting(env, 'flags_version')) === FLAGS_VERSION) return;
   let me = { ids: [], nums: [] };
@@ -474,13 +484,20 @@ async function backfillFlags(env) {
     "WHERE IFNULL(sender_phone, '') = '' AND sender LIKE '%@lid' AND EXISTS (SELECT 1 FROM contacts WHERE contacts.jid = messages.sender AND pn IS NOT NULL)"
   ).run();
   const rows = (await env.DB.prepare(
-    'SELECT id, chat, t, is_group, from_me, tag, text, sender_phone FROM messages WHERE from_me = 0 AND received_at >= ?'
+    'SELECT m.id, m.chat, m.t, m.is_group, m.from_me, m.tag, m.text, m.sender_phone, c.name AS chat_name FROM messages m ' +
+    'LEFT JOIN chats c ON c.jid = m.chat WHERE m.from_me = 0 AND m.received_at >= ?'
   ).bind(Date.now() - KEEP_DAYS * DAY).all()).results;
-  const flags = [];
+  const flags = [], drop = [];
   for (const r of rows) {
     if (me.ids.indexOf(bare(r.chat)) !== -1) continue;
     const why = flagReasons(r);
     if (why.length) flags.push({ msg_id: r.id, chat: r.chat, t: r.t, reasons: why.join(' ') });
+    else drop.push(r.id);
+  }
+  // A rule that now says "not this one" takes it off the list (unless it was already ticked).
+  for (let i = 0; i < drop.length; i += 2000) {
+    await env.DB.prepare('DELETE FROM flags WHERE done_at IS NULL AND msg_id IN (SELECT value FROM json_each(?))')
+      .bind(JSON.stringify(drop.slice(i, i + 2000))).run();
   }
   for (let i = 0; i < flags.length; i += 2000) {
     await env.DB.prepare(
@@ -556,6 +573,7 @@ async function getInbox(env, daysArg) {
   return {
     now, since, days, me: { name: sf.me.name }, lastArrival: (last && last.r) || 0, captured: 0,
     chats, callsToday, flags: await flagsOut(env, sf.nums, today), tasks: await tasksOut(env), groups,
+    outbox: await outboxOut(env), webLive: await webLive(env),
     teamGroups: JSON.parse((await getSetting(env, 'team_groups')) || '{}'),
     keywords: KEYWORDS, types: TASK_TYPES, teams: TEAMS, owners: OWNERS.map(o => o.name)
   };
@@ -606,6 +624,27 @@ async function getChat(env, jid, daysArg) {
   const names = await mentionNames(env, rows, sf.nums);
   const isGroup = /@g\.us$/.test(jid);
   return { jid, more: Math.max(0, ((all && all.n) || 0) - rows.length), msgs: rows.map(m => msgOut(m, s, names, sf.nums, isGroup)) };
+}
+
+// One message in full, with the conversation around it — the detail panel next to the cards.
+async function getContext(env, msgId) {
+  const sf = await selfFilter(env);
+  const m = await env.DB.prepare('SELECT * FROM messages WHERE id = ?').bind(String(msgId)).first();
+  if (!m) throw new Error('Message nahi mila (30 din se purana ho sakta hai).');
+  const cols = 'id, t, chat, from_me, sender, sender_phone, sender_name, type, text, tag';
+  const before = (await env.DB.prepare('SELECT ' + cols + ' FROM messages WHERE chat = ? AND t < ? ORDER BY t DESC LIMIT 12')
+    .bind(m.chat, m.t).all()).results.reverse();
+  const after = (await env.DB.prepare('SELECT ' + cols + ' FROM messages WHERE chat = ? AND t > ? ORDER BY t LIMIT 8')
+    .bind(m.chat, m.t).all()).results;
+  const rows = before.concat([m], after);
+  const names = await mentionNames(env, rows, sf.nums);
+  const st = { seen: Infinity, lastOut: 0, tags: 0 };
+  const isGroup = /@g\.us$/.test(m.chat);
+  const full = r => Object.assign(msgOut(Object.assign({}, r, { tag: 0 }), st, names, sf.nums, isGroup),
+    { text: niceMentions(r.text, names, sf.nums), owner: r.from_me ? '' : ownerOf(r.sender_phone), me: !!r.from_me });
+  const chat = await env.DB.prepare('SELECT name FROM chats WHERE jid = ?').bind(m.chat).first();
+  return { id: m.id, jid: m.chat, chat: (chat && chat.name) || prettyJid(m.chat), group: isGroup, msg: full(m),
+           around: rows.map(r => Object.assign(full(r), { focus: r.id === m.id })) };
 }
 
 // Chats in the window with a message containing q — for the search box.
@@ -739,6 +778,75 @@ async function sendToTeam(env, id, groupJid, text, team) {
 }
 
 // ===================================================================
+// Replies from the dashboard
+// ===================================================================
+const WEB_LIVE_MS = 90000;     // WhatsApp Web counts as open if it asked for replies this recently
+
+async function webLive(env) {
+  return Date.now() - (Number(await getSetting(env, 'web_seen')) || 0) < WEB_LIVE_MS;
+}
+
+async function queueReply(env, o) {
+  o = o || {};
+  const chat = String(o.chat || ''), text = String(o.text || '').trim();
+  if (!text) throw new Error('Jawab khaali hai.');
+  if (text.length > 4000) throw new Error('Jawab bahut lamba hai.');
+  const known = await env.DB.prepare('SELECT 1 AS x FROM chats WHERE jid = ?').bind(chat).first();
+  if (!known) throw new Error('Ye chat list mein nahi hai — page refresh karke dekhiye.');
+  const id = 'R' + Date.now().toString(36) + randomHex(3);
+  await env.DB.prepare('INSERT INTO outbox (id, created, chat, quote, text, flag_id, mark_done) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .bind(id, Date.now(), chat, o.quote ? String(o.quote) : null, text, o.flagId ? String(o.flagId) : null, o.markDone ? 1 : 0).run();
+  return { id, webLive: await webLive(env) };
+}
+
+// The fallback: straight through WaSender, no quote (WaSender can only quote what it sent itself).
+async function sendReplyNow(env, id) {
+  const o = await env.DB.prepare('SELECT * FROM outbox WHERE id = ?').bind(String(id)).first();
+  if (!o) throw new Error('Reply nahi mila.');
+  if (o.status === 'sent') return true;
+  if (o.status === 'sending' && Date.now() - (o.claimed_at || 0) < 120000) throw new Error('WhatsApp Web abhi bhej raha hai — thoda rukiye.');
+  let to = o.chat;
+  if (/@s\.whatsapp\.net$/.test(to)) to = '+' + to.split('@')[0];
+  else if (/@lid$/.test(to)) throw new Error('Is chat ka number pata nahi — WhatsApp Web khol ke bhejiye.');
+  await wa(env, 'POST', '/send-message', { to, text: o.text });
+  await finishReply(env, o, true, 'wasender', '');
+  return true;
+}
+
+async function finishReply(env, o, ok, via, error) {
+  await env.DB.prepare('UPDATE outbox SET status = ?, via = ?, sent_at = ?, error = ? WHERE id = ?')
+    .bind(ok ? 'sent' : 'failed', via || null, ok ? Date.now() : null, ok ? null : String(error || 'fail').slice(0, 300), o.id).run();
+  if (ok && o.mark_done && o.flag_id) await markFlags(env, [o.flag_id], true);
+}
+
+// WhatsApp Web's side: hand out what is waiting (claimed so two tabs cannot both send it), and
+// take back the result. Also its heartbeat, so the dashboard can say whether the tab is open.
+async function outboxClaim(env) {
+  const now = Date.now();
+  if (now - (Number(await getSetting(env, 'web_seen')) || 0) > 60000) await setSetting(env, 'web_seen', now);
+  await env.DB.prepare("UPDATE outbox SET status = 'failed', error = 'WhatsApp Web ne jawab nahi diya' WHERE status = 'sending' AND claimed_at < ?")
+    .bind(now - 120000).run();
+  const r = await env.DB.prepare(
+    "UPDATE outbox SET status = 'sending', claimed_at = ? WHERE id IN (SELECT id FROM outbox WHERE status = 'pending' AND created > ? " +
+    'ORDER BY created LIMIT 5) RETURNING id, chat, quote, text').bind(now, now - DAY).all();
+  return r.results || [];
+}
+async function outboxAck(env, body) {
+  const o = await env.DB.prepare('SELECT * FROM outbox WHERE id = ?').bind(String((body && body.id) || '')).first();
+  if (!o) return false;
+  await finishReply(env, o, !!body.ok, 'web', body.error);
+  return true;
+}
+
+async function outboxOut(env) {
+  const r = await env.DB.prepare(
+    'SELECT id, created, chat, quote, text, status, via, sent_at, error FROM outbox WHERE created > ? ORDER BY created DESC LIMIT 300'
+  ).bind(Date.now() - 2 * DAY).all();
+  return r.results.map(o => ({ id: o.id, created: o.created, chat: o.chat, quote: o.quote || '', text: o.text,
+    status: o.status, via: o.via || '', sentAt: o.sent_at || 0, error: o.error || '' }));
+}
+
+// ===================================================================
 // Names sync (cron + button)
 // ===================================================================
 export async function syncNames(env, withContacts) {
@@ -860,7 +968,10 @@ async function getSetup(env, origin) {
 const RPC = {
   getWaInbox: (env, a) => getInbox(env, a[0]),
   markWaFlags: (env, a) => markFlags(env, a[0], a[1] !== false),
+  queueWaReply: (env, a) => queueReply(env, a[0]),
+  sendWaReplyNow: (env, a) => sendReplyNow(env, a[0]),
   getWaChat: (env, a) => getChat(env, a[0], a[1]),
+  getWaContext: (env, a) => getContext(env, a[0]),
   searchWa: (env, a) => searchChats(env, a[0], a[1]),
   markWaChatsSeen: (env, a) => markSeen(env, a[0]),
   clearWaChatTags: (env, a) => clearTags(env, a[0], a[1]),
@@ -949,6 +1060,13 @@ export function makeWorker(inboxHtml, userScript, coreScript) {
           return new Response('ok');
         }
         if (p === '/health') return new Response('ok');
+        // WhatsApp Web collects replies to send, and reports back. Same token as the webhook.
+        if (p === '/wa-outbox') {
+          const token = await secretSetting(env, 'webhook_token');
+          if (!safeEq(url.searchParams.get('token') || '', token)) return new Response('forbidden', { status: 401 });
+          if (req.method === 'GET') return json({ items: await outboxClaim(env) });
+          if (req.method === 'POST') return json({ ok: await outboxAck(env, await req.json()) });
+        }
         // The in-page half of the WhatsApp Web script; the loader fetches it with the webhook token.
         if (p === '/wa-core.js' && req.method === 'GET') {
           const token = await secretSetting(env, 'webhook_token');

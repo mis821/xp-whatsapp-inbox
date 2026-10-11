@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         XP WhatsApp Inbox — sync
 // @namespace    xp-whatsapp-inbox
-// @version      1.2.0
-// @description  WhatsApp Web (office number) ke messages XP WhatsApp Inbox dashboard ko bhejta hai, aur dashboard se likhe reply bhejta hai.
+// @version      1.3.0
+// @description  Sends the office number's WhatsApp Web messages to the XP WhatsApp Inbox dashboard, and sends replies written there.
 // @match        https://web.whatsapp.com/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_addElement
@@ -41,7 +41,7 @@
   ];
   var BATCH = 200;
 
-  var queue = [], sending = false, sent = 0, lastOk = 0, lastErr = '', stage = 'WA-JS load ho raha hai…';
+  var queue = [], sending = false, sent = 0, lastOk = 0, lastErr = '', stage = 'loading WA-JS…';
 
   // ---------- small status badge, bottom-left ----------
   var badgeEl = null;
@@ -55,7 +55,7 @@
     var bad = !!lastErr;
     badgeEl.style.background = bad ? '#dc2626' : (lastOk ? '#16a34a' : '#475569');
     badgeEl.textContent = 'XP Inbox: ' + (bad ? '⚠ ' + lastErr : stage) +
-      (sent ? ' · ' + sent + ' bheje' : '') + (queue.length ? ' · ' + queue.length + ' line mein' : '');
+      (sent ? ' · ' + sent + ' sent' : '') + (queue.length ? ' · ' + queue.length + ' queued' : '');
   }
 
   // ---------- sending ----------
@@ -75,13 +75,13 @@
       headers: { 'Content-Type': 'application/json' },
       data: JSON.stringify({ event: 'xp.rows', data: { rows: batch } }),
       onload: function (r) {
-        if (r.status !== 200) return retry(r.status === 401 ? 'token galat — script dobara install kijiye' : 'server ' + r.status);
+        if (r.status !== 200) return retry(r.status === 401 ? 'invalid token — please reinstall the script' : 'server ' + r.status);
         sending = false; sent += batch.length; lastOk = Date.now(); lastErr = '';
         badge();
         setTimeout(flush, 300);
       },
-      onerror: function () { retry('internet / server nahi mila'); },
-      ontimeout: function () { retry('server slow'); }
+      onerror: function () { retry('cannot reach the server'); },
+      ontimeout: function () { retry('server timeout'); }
     });
   }
 
@@ -130,9 +130,9 @@
     for (var i = 0; i < WAJS_URLS.length && !code; i++) {
       try { code = await get(WAJS_URLS[i]); } catch (e) { /* try the next mirror */ }
     }
-    if (!code) { lastErr = 'WA-JS download nahi hua'; badge(); return; }
+    if (!code) { lastErr = 'could not download WA-JS'; badge(); return; }
     var core = null;
-    try { core = await get(CORE_URL, 500); } catch (e) { lastErr = 'dashboard se script nahi mili (' + e.message + ')'; badge(); return; }
+    try { core = await get(CORE_URL, 500); } catch (e) { lastErr = 'could not load the script from the dashboard (' + e.message + ')'; badge(); return; }
     GM_addElement('script', { textContent: code });
     GM_addElement('script', { textContent: core });
   })();

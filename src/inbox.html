@@ -24,6 +24,7 @@
          font-size: 13px; font-weight: 600; white-space: nowrap; }
   .btn:hover { border-color: #b8bcc4; }
   .btn.pri { background: var(--brand); border-color: var(--brand); color: #fff; }
+  a.btn { text-decoration: none; color: var(--ink); display: inline-block; }
   .btn.sm { padding: 5px 9px; font-size: 12px; }
   .btn:disabled { opacity: .55; cursor: progress; }
   select.days { padding: 7px 8px; border: 1px solid #d0d3d9; border-radius: 8px; background: var(--card); }
@@ -259,22 +260,22 @@
 </head>
 <body>
   <nav class="tabbar views">
-    <button class="tab active" data-view="zaroori">⭐ Zaroori <span class="badge" id="b-zar"></span></button>
+    <button class="tab active" data-view="zaroori">⭐ Priority <span class="badge" id="b-zar"></span></button>
     <button class="tab" data-view="tasks">📋 Task List <span class="badge" id="b-tasks"></span></button>
     <button class="tab" data-view="owners">👑 Owners <span class="badge" id="b-owners"></span></button>
     <button class="tab" data-view="kaam">✅ Work List <span class="badge" id="b-kaam"></span></button>
-    <button class="tab" data-view="review">🌆 Shaam ka hisaab</button>
-    <button class="tab" data-view="inbox">💬 Sab chats</button>
+    <button class="tab" data-view="review">🌆 Daily Review</button>
+    <button class="tab" data-view="inbox">💬 All Chats</button>
     <button class="tab" data-view="report">📊 Report</button>
     <button class="tab" data-view="setup">⚙️ Setup</button>
     <span class="right">
       <span class="who" id="who"></span>
       <span class="upd" id="upd"></span>
-      <select class="days" id="days" title="Sab chats mein kitne din ke messages">
-        <option value="1">Aaj</option>
-        <option value="2">Aaj + kal</option>
-        <option value="3">3 din</option>
-        <option value="7">7 din</option>
+      <select class="days" id="days" title="How many days of messages to load in All Chats">
+        <option value="1">Today</option>
+        <option value="2">Today + yesterday</option>
+        <option value="3">3 days</option>
+        <option value="7">7 days</option>
       </select>
       <button class="btn" id="reload">⟳ Refresh</button>
     </span>
@@ -286,21 +287,21 @@
   <!-- ============ INBOX ============ -->
   <!-- ============ ZAROORI ============ -->
   <section id="v-zaroori">
-    <p class="viewnote">Sirf ye 3: jahan <b>aapko tag</b> kiya, jahan <b>"Neeraj"</b> likha hai, aur jahan <b>payment</b> ki baat hai.
-      Ye tab tak yahin rahenge jab tak aap <b>✓ Ho gaya</b> nahi dabate — WhatsApp pe padh lene se nahi hatenge.</p>
+    <p class="viewnote">Only three kinds of message: where you are <b>mentioned</b> in a group, where <b>"Neeraj"</b> is named, and where a <b>payment</b> is raised.
+      Each item stays here until you mark it <b>✓ Done</b> — reading or replying on WhatsApp does not clear it.</p>
     <div class="toolbar">
-      <input type="search" id="zq" placeholder="Group, naam ya message dhundho…">
+      <input type="search" id="zq" placeholder="Search group, name or message…">
     </div>
     <div class="chips" id="zchips"></div>
     <div class="count" id="zcount"></div>
-    <div class="split"><div id="zlist"><div class="empty">Load ho raha hai…</div></div><aside class="detail" id="zdetail"></aside></div>
+    <div class="split"><div id="zlist"><div class="empty">Loading…</div></div><aside class="detail" id="zdetail"></aside></div>
   </section>
 
   <!-- ============ TASK LIST (company task system reminders) ============ -->
   <section id="v-tasks" hidden>
-    <p class="viewnote">Task system ke reminders ("…was due on… When will you close it?"). Ek task ke kitne bhi reminder aayein,
-      yahan <b>ek hi card</b> dikhega. <b>✓ Ho gaya</b> dabane ke baad agar kal phir reminder aaya to card wapas aa jayega — matlab system mein abhi bhi khula hai.</p>
-    <div class="toolbar"><input type="search" id="tq" placeholder="Task dhundho…"></div>
+    <p class="viewnote">Reminders from the task system ("…was due on… When will you close it?"). However many reminders a task gets, it appears as
+      <b>one card</b>. After you mark it <b>✓ Done</b>, a new reminder brings it back — meaning it is still open in the task system.</p>
+    <div class="toolbar"><input type="search" id="tq" placeholder="Search tasks…"></div>
     <div class="chips" id="tchips"></div>
     <div class="count" id="tcount"></div>
     <div class="split"><div id="tlist"></div><aside class="detail" id="tdetail"></aside></div>
@@ -308,9 +309,9 @@
 
   <!-- ============ OWNERS ============ -->
   <section id="v-owners" hidden>
-    <p class="viewnote">Anant Sir, Hitesh Sir aur Raj Kumar Sir ke saare messages — kisi bhi group ya personal chat se.
-      <b>✓ Ho gaya</b> dabane tak yahin rahenge.</p>
-    <div class="toolbar"><input type="search" id="oq" placeholder="Group ya message dhundho…"></div>
+    <p class="viewnote">Every message from Anant Sir, Hitesh Sir and Raj Kumar Sir — from any group or direct chat.
+      Each stays here until you mark it <b>✓ Done</b>.</p>
+    <div class="toolbar"><input type="search" id="oq" placeholder="Search group or message…"></div>
     <div class="chips" id="ochips"></div>
     <div class="count" id="ocount"></div>
     <div class="split"><div id="olist"></div><aside class="detail" id="odetail"></aside></div>
@@ -319,23 +320,23 @@
   <section id="v-inbox" hidden>
     <div id="pend"></div>
     <div class="toolbar">
-      <input type="search" id="q" placeholder="Group, naam ya message dhundho…">
-      <button class="btn" id="allSeen" title="Jo chats khule nahi hain unhe bhi dekha hua maan lo (tag wale nahi)">✓ Sab dekh liya</button>
+      <input type="search" id="q" placeholder="Search group, name or message…">
+      <button class="btn" id="allSeen" title="Mark every chat as read (mentions stay pending)">✓ Mark all read</button>
     </div>
     <div class="chips" id="chips"></div>
-    <div id="chatList"><div class="empty">Load ho raha hai…</div></div>
+    <div id="chatList"><div class="empty">Loading…</div></div>
   </section>
 
   <!-- ============ MERE KAAM ============ -->
   <section id="v-kaam" hidden>
     <details class="card" id="quickBox">
-      <summary style="font-weight:800;cursor:pointer;color:var(--brand)">➕ Add to Work List (naya kaam / commitment)</summary>
+      <summary style="font-weight:800;cursor:pointer;color:var(--brand)">➕ Add to Work List</summary>
       <div id="quickForm"></div>
       <div class="foot" style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
         <button class="btn pri" id="quickSave">Add to Work List</button>
       </div>
-      <p class="hint">Meeting mein ho aur phone pe kuch commit kar diya? WhatsApp pe apne aap ko (<b>Message yourself</b>) likh do:<br>
-        <code>#kaam Jyoti Timbers: payment kal ho jayega</code> — ye yahan apne aap aa jayega (kal = due kal, "payment" = Accounts).</p>
+      <p class="hint">In a meeting and made a commitment on the phone? Send yourself a WhatsApp (<b>Message yourself</b>):<br>
+        <code>#task Jyoti Timbers: payment tomorrow</code> — it appears here automatically ("tomorrow" sets the due date; "payment" assigns it to Accounts).</p>
     </details>
     <div class="chips" id="teamChips"></div>
     <div id="taskList"></div>
@@ -349,17 +350,17 @@
   <!-- ============ REPORT ============ -->
   <section id="v-report" hidden>
     <div class="toolbar">
-      <label style="margin:0;font-size:13px;color:var(--ink)">Mahina: <input type="month" id="rmonth" style="padding:8px;border:1px solid #d0d3d9;border-radius:8px"></label>
-      <a class="btn" href="/export/items.csv">⬇ Saare messages (Excel)</a>
+      <label style="margin:0;font-size:13px;color:var(--ink)">Month: <input type="month" id="rmonth" style="padding:8px;border:1px solid #d0d3d9;border-radius:8px"></label>
+      <a class="btn" href="/export/items.csv">⬇ All items (Excel)</a>
       <a class="btn" href="/export/worklist.csv">⬇ Work List (Excel)</a>
       <button class="btn" onclick="window.print()">🖨 Print / PDF</button>
     </div>
-    <div id="report"><div class="empty">Load ho raha hai…</div></div>
+    <div id="report"><div class="empty">Loading…</div></div>
   </section>
 
   <!-- ============ SETUP ============ -->
   <section id="v-setup" hidden>
-    <div id="setup"><div class="empty">Load ho raha hai…</div></div>
+    <div id="setup"><div class="empty">Loading…</div></div>
   </section>
 </div>
 
@@ -398,18 +399,18 @@
     if (!ms) return '';
     var d = new Date(ms), k = dayKey(ms), hm = pad(d.getHours()) + ':' + pad(d.getMinutes());
     if (k === todayKey()) return hm;
-    if (k === dayKey(nowMs() - 86400000)) return 'Kal ' + hm;
+    if (k === dayKey(nowMs() - 86400000)) return 'Yesterday ' + hm;
     return pad(d.getDate()) + '-' + pad(d.getMonth() + 1) + ' ' + hm;
   }
   function daysBetween(a, b) { return Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000); }
   function fmtDue(key) {
-    if (!key) return 'Aaj';
+    if (!key) return 'Today';
     var t = todayKey(), diff = daysBetween(t, key);
-    if (diff === 0) return 'Aaj';
-    if (diff === 1) return 'Kal';
-    if (diff === 2) return 'Parso';
+    if (diff === 0) return 'Today';
+    if (diff === 1) return 'Tomorrow';
+    if (diff === 2) return 'In 2 days';
     var label = key.slice(8, 10) + '-' + key.slice(5, 7);
-    if (diff < 0) return label + ' <span class="lateby">(' + (-diff) + ' din late)</span>';
+    if (diff < 0) return label + ' <span class="lateby">(' + (-diff) + ' days late)</span>';
     return label;
   }
   function toast(msg) {
@@ -427,7 +428,7 @@
     if (/\b(material|maal|dispatch|delivery|gaadi|vehicle|stock|sample)\b/.test(low)) return 'Material';
     return 'Follow-up';
   }
-  function guessTeam(type) { return type === 'Payment' ? 'Accounts' : type === 'Material' ? 'Store' : 'Khud'; }
+  function guessTeam(type) { return type === 'Payment' ? 'Accounts' : type === 'Material' ? 'Store' : 'Self'; }
 
   // The one door to the server: POST /api/rpc {fn, args} -> {data} or {error}.
   function rpc(fn, args, ok, fail) {
@@ -468,7 +469,7 @@
   }
   function msgText(m) {
     var icon = TYPE_ICON[m.type] || '';
-    if (m.call) return icon + (m.text ? esc(m.text) : 'Call aaya');
+    if (m.call) return icon + (m.text ? esc(m.text) : 'Call received');
     if (!m.text) return icon + '<i>(' + esc(m.type || 'message') + ')</i>';
     return icon + hl(m.text);
   }
@@ -487,7 +488,7 @@
   function load(quiet) {
     if (LOADING) return;
     LOADING = true;
-    if (!quiet) $('upd').textContent = 'Load ho raha hai…';
+    if (!quiet) $('upd').textContent = 'Loading…';
     rpc('getWaInbox', [DAYS], function (d) {
       LOADING = false;
       try { onData(d); } catch (e) { showError(e); }
@@ -495,7 +496,7 @@
       LOADING = false;
       $('upd').textContent = '';
       showError(err);
-      if (!D) $('chatList').innerHTML = '<div class="empty">Data nahi aaya.</div>';
+      if (!D) $('chatList').innerHTML = '<div class="empty">Could not load data.</div>';
     });
   }
 
@@ -531,13 +532,13 @@
   function renderBanner() {
     var h = '', d = D;
     if (!d.lastArrival) {
-      h += '<div class="banner amber">Abhi tak ek bhi message nahi aaya. <a href="#" data-act="view" data-v="setup">⚙️ Setup</a> ' +
-           'mein WhatsApp Web wali script install kijiye.</div>';
+      h += '<div class="banner amber">No messages received yet. Install the WhatsApp Web script from ' +
+           '<a href="#" data-act="view" data-v="setup">⚙️ Setup</a>.</div>';
     } else {
       var hrs = (d.now - d.lastArrival) / 3600000, hr = new Date(d.now).getHours();
       if (hrs > 2 && hr >= 10 && hr <= 20) {
-        h += '<div class="banner amber">Pichla message ' + Math.floor(hrs) + ' ghante pehle aaya tha — ' +
-             'WhatsApp Web ka tab khula hai aur neeche left mein "XP Inbox: live ✓" dikh raha hai?</div>';
+        h += '<div class="banner amber">The last message arrived ' + Math.floor(hrs) + ' hours ago — ' +
+             'is the WhatsApp Web tab open, with "XP Inbox: live ✓" showing at the bottom left?</div>';
       }
     }
     $('banner').innerHTML = h;
@@ -572,14 +573,14 @@
     var c = counts();
     $('tiles').innerHTML =
       '<div class="stats-line">' +
-        '<span class="s s-tag" data-act="zf" data-f="tag">@ Mujhe tag:<b>' + c.ftag + '</b></span>' +
+        '<span class="s s-tag" data-act="zf" data-f="tag">@ Mentions:<b>' + c.ftag + '</b></span>' +
         '<span class="s s-neeraj" data-act="zf" data-f="neeraj">Neeraj:<b>' + c.fneeraj + '</b></span>' +
         '<span class="s s-pay" data-act="zf" data-f="payment">Payment:<b>' + c.fpay + '</b></span>' +
         '<span class="s s-over" data-act="view" data-v="kaam">Work List overdue:<b>' + c.over + '</b></span>' +
-        '<span class="s s-today" data-act="view" data-v="kaam">Work List aaj:<b>' + c.today + '</b></span>' +
-        '<span class="s s-task" data-act="view" data-v="tasks">Task list:<b>' + c.tasks + '</b></span>' +
+        '<span class="s s-today" data-act="view" data-v="kaam">Work List due today:<b>' + c.today + '</b></span>' +
+        '<span class="s s-task" data-act="view" data-v="tasks">Tasks:<b>' + c.tasks + '</b></span>' +
         '<span class="s s-owner" data-act="view" data-v="owners">Owners:<b>' + c.owners + '</b></span>' +
-      '</div><div class="total">Zaroori baaki: <b>' + c.fopen + '</b></div>';
+      '</div><div class="total">Priority pending: <b>' + c.fopen + '</b></div>';
     $('b-kaam').textContent = (c.over + c.today) || '';
     $('b-zar').textContent = c.fopen || '';
     $('b-tasks').textContent = c.tasks || '';
@@ -588,7 +589,7 @@
 
   // ---------- ZAROORI ----------
   var ZF = 'all', ZQ = '';
-  var REASON_LABEL = { tag: '@ Tag', neeraj: 'Neeraj', payment: 'Payment' };
+  var REASON_LABEL = { tag: '@ Mention', neeraj: 'Neeraj', payment: 'Payment' };
   function flagBy(id) { for (var i = 0; D && i < D.flags.length; i++) if (D.flags[i].id === id) return D.flags[i]; return null; }
   function zHl(text) {
     return hl(text).replace(/(neeraj|नीरज)/gi, '<mark>$1</mark>');
@@ -604,8 +605,8 @@
     var open = flags.filter(function (f) { return !f.done; });
     var count = function (k) { return open.filter(function (f) { return f.reasons.indexOf(k) !== -1; }).length; };
     var doneToday = flags.filter(function (f) { return f.done; }).length;
-    var chips = [['all', 'Sab', open.length], ['tag', '@ Mujhe tag', count('tag')], ['neeraj', '👤 Neeraj', count('neeraj')],
-                 ['payment', '💰 Payment', count('payment')], ['done', '✓ Aaj ho gaye', doneToday]];
+    var chips = [['all', 'All', open.length], ['tag', '@ Mentions', count('tag')], ['neeraj', '👤 Neeraj', count('neeraj')],
+                 ['payment', '💰 Payment', count('payment')], ['done', '✓ Done today', doneToday]];
     var cls = { tag: ' c-tag', neeraj: ' c-neeraj', payment: ' c-pay' };
     $('zchips').innerHTML = chips.map(function (ch) {
       return '<button class="chip' + (cls[ch[0]] || '') + (ZF === ch[0] ? ' active' : '') + '" data-act="zf" data-f="' + ch[0] + '">' +
@@ -619,10 +620,10 @@
       if (q && (f.chat + ' ' + f.who + ' ' + f.text).toLowerCase().indexOf(q) === -1) return false;
       return true;
     });
-    $('zcount').textContent = list.length + ' dikh rahe';
+    $('zcount').textContent = list.length + ' shown';
     if (!list.length) {
-      $('zlist').innerHTML = '<div class="empty">' + (ZF === 'done' ? 'Aaj abhi kuch tick nahi kiya.' :
-        flags.length ? 'Sab ho gaya 🎉 Is list mein kuch baaki nahi.' : 'Abhi koi zaroori message nahi aaya.') + '</div>';
+      $('zlist').innerHTML = '<div class="empty">' + (ZF === 'done' ? 'Nothing marked done today yet.' :
+        flags.length ? 'All clear 🎉 Nothing pending here.' : 'No priority messages yet.') + '</div>';
       return;
     }
     var perChat = {};
@@ -632,7 +633,7 @@
 
   // One message card — Zaroori and Owners share it.
   function flagCard(f, perChat) {
-    var LABEL = { tag: '@ Aapko tag', neeraj: '👤 Neeraj', payment: '💰 Payment', owner: '👑 ' + (f.owner || 'Owner') };
+    var LABEL = { tag: '@ Mentioned', neeraj: '👤 Neeraj', payment: '💰 Payment', owner: '👑 ' + (f.owner || 'Owner') };
     {
       var lead = f.reasons.indexOf('owner') !== -1 ? 'owner' : f.reasons.indexOf('tag') !== -1 ? 'tag' : f.reasons[0];
       var more = (perChat[f.jid] || 0) - (f.done ? 0 : 1);
@@ -642,15 +643,15 @@
           '<span class="po-date">' + fmtTime(f.t) + '</span></div>' +
         '<div class="po-number">' + esc(f.who) + '</div>' +
         '<div class="msgtext">' + (TYPE_ICON[f.type] || '') + zHl(f.text || '(' + f.type + ')') + '</div>' +
-        (more > 0 ? '<div class="meta">Is group mein <b>' + more + '</b> aur baaki</div>' : '') +
+        (more > 0 ? '<div class="meta"><b>' + more + '</b> more pending in this group</div>' : '') +
         '<div class="pills">' + f.reasons.map(function (r) {
           return '<span class="badge-pill r-' + r + '">' + esc(LABEL[r] || r) + '</span>';
-        }).join('') + (f.done ? '<span class="badge-pill r-soft">✓ Ho gaya ' + fmtTime(f.done) + '</span>' : '') + '</div>' +
+        }).join('') + (f.done ? '<span class="badge-pill r-soft">✓ Done ' + fmtTime(f.done) + '</span>' : '') + '</div>' +
         replyStatus(f.id) +
         '<div class="card-actions">' +
-          '<button class="bigbtn teal" data-act="reply" data-id="' + esc(f.id) + '">↩ Reply karo</button>' +
-          (f.done ? '<button class="bigbtn grey" data-act="flag-undo" data-id="' + esc(f.id) + '">↩ Wapas laao</button>'
-                  : '<button class="bigbtn done" data-act="flag-done" data-id="' + esc(f.id) + '">✓ Ho gaya</button>' +
+          '<button class="bigbtn teal" data-act="reply" data-id="' + esc(f.id) + '">↩ Reply</button>' +
+          (f.done ? '<button class="bigbtn grey" data-act="flag-undo" data-id="' + esc(f.id) + '">↩ Reopen</button>'
+                  : '<button class="bigbtn done" data-act="flag-done" data-id="' + esc(f.id) + '">✓ Done</button>' +
                     '<button class="bigbtn kaam" data-act="kaam-flag" data-id="' + esc(f.id) + '">+ Add to Work List</button>') +
         '</div></div>';
     }
@@ -675,7 +676,7 @@
     if (!pid || !D) return;
     var s = SEL[VIEW];
     var html = '';
-    if (!s) html = '<div class="dempty">👈 Kisi card pe click kijiye —<br>poora message aur us chat ki baat-cheet yahan dikhegi.</div>';
+    if (!s) html = '<div class="dempty">👈 Click any card<br>to see the full message and the conversation around it.</div>';
     else if (s.kind === 'task') html = taskDetail(s.id);
     else html = flagDetail(s.id);
     // On a phone there is no room beside the cards: the same panel opens as a sheet instead —
@@ -688,7 +689,7 @@
     if (!c) {
       rpc('getWaContext', [msgId], function (res) { CTX[msgId] = res; renderDetailIfShowing(msgId); },
           function (e) { CTX[msgId] = { error: e.message }; renderDetailIfShowing(msgId); });
-      return '<div class="dempty">Baat-cheet aa rahi hai…</div>';
+      return '<div class="dempty">Loading conversation…</div>';
     }
     if (c.error) return '<div class="meta">' + esc(c.error) + '</div>';
     return '<div class="ctx">' + c.around.map(function (m) {
@@ -706,39 +707,39 @@
     var c = CTX[msgId];
     return c && c.msg ? c.msg.text : fallback;
   }
-  var LABELS = { tag: '@ Aapko tag', neeraj: '👤 Neeraj', payment: '💰 Payment' };
+  var LABELS = { tag: '@ Mentioned', neeraj: '👤 Neeraj', payment: '💰 Payment' };
   function flagDetail(id) {
     var f = flagBy(id);
-    if (!f) return '<div class="dempty">Ye message ab list mein nahi hai.</div>';
+    if (!f) return '<div class="dempty">This message is no longer on the list.</div>';
     return '<div class="supplier">' + esc(f.chat) + '</div>' +
       '<div class="po-number" style="margin-top:4px">' + esc(f.who) + (f.owner ? ' 👑' : '') + '</div>' +
-      '<div class="meta">' + fmtTime(f.t) + (f.done ? ' · ✓ Ho gaya ' + fmtTime(f.done) : '') + '</div>' +
+      '<div class="meta">' + fmtTime(f.t) + (f.done ? ' · ✓ Done ' + fmtTime(f.done) : '') + '</div>' +
       '<div class="pills">' + f.reasons.map(function (r) {
         return '<span class="badge-pill r-' + r + '">' + esc(r === 'owner' ? '👑 ' + (f.owner || 'Owner') : (LABELS[r] || r)) + '</span>';
       }).join('') + '</div>' +
       '<div class="dfull">' + (TYPE_ICON[f.type] || '') + zHl(fullText(f.id, f.text) || '(' + f.type + ')') + '</div>' +
       replyStatus(f.id) +
       '<div class="card-actions" style="margin-bottom:12px">' +
-        '<button class="bigbtn teal" data-act="reply" data-id="' + esc(f.id) + '">↩ Reply karo</button>' +
-        (f.done ? '<button class="bigbtn grey" data-act="flag-undo" data-id="' + esc(f.id) + '">↩ Wapas laao</button>'
-                : '<div class="btnrow"><button class="bigbtn done" data-act="flag-done" data-id="' + esc(f.id) + '">✓ Ho gaya</button>' +
+        '<button class="bigbtn teal" data-act="reply" data-id="' + esc(f.id) + '">↩ Reply</button>' +
+        (f.done ? '<button class="bigbtn grey" data-act="flag-undo" data-id="' + esc(f.id) + '">↩ Reopen</button>'
+                : '<div class="btnrow"><button class="bigbtn done" data-act="flag-done" data-id="' + esc(f.id) + '">✓ Done</button>' +
                   '<button class="bigbtn kaam" data-act="kaam-flag" data-id="' + esc(f.id) + '">+ Work List</button></div>') +
-      '</div><div class="sec">💬 Is chat mein aas-paas</div>' + ctxHtml(f.id);
+      '</div><div class="sec">💬 Conversation</div>' + ctxHtml(f.id);
   }
   function taskDetail(key) {
     var g = taskGroups().filter(function (x) { return x.key === key; })[0];
-    if (!g) return '<div class="dempty">Ye task ab list mein nahi hai.</div>';
+    if (!g) return '<div class="dempty">This task is no longer on the list.</div>';
     var i = g.info, isDone = !g.open.length;
-    return '<div class="supplier">' + esc(i.whose ? i.whose + ' ka task' : 'Task system') + '</div>' +
+    return '<div class="supplier">' + esc(i.whose ? 'Assigned: ' + i.whose : 'Task system') + '</div>' +
       '<div class="po-number" style="margin-top:4px">' + esc(i.title) + '</div>' +
-      (i.due ? '<div class="meta">Due tha: <b>' + esc(i.due) + '</b></div>' : '') +
-      '<div class="meta">Reminder aaye: <b>' + g.items.length + ' baar</b></div>' +
+      (i.due ? '<div class="meta">Was due: <b>' + esc(i.due) + '</b></div>' : '') +
+      '<div class="meta">Reminders received: <b>' + g.items.length + '</b></div>' +
       '<ul class="rem-list">' + g.items.map(function (f) { return '<li>' + fmtTime(f.t) + (f.done ? ' ✓' : '') + '</li>'; }).join('') + '</ul>' +
       '<div class="dfull">' + zHl(fullText(g.latest.id, g.latest.text)) + '</div>' +
       '<div class="card-actions" style="margin-bottom:12px">' +
-        (i.url ? '<a class="bigbtn kaam" target="_blank" rel="noopener" href="' + esc(i.url) + '">🔗 Task kholo</a>' : '') +
-        (isDone ? '<button class="bigbtn grey" data-act="task-key-undo" data-k="' + esc(g.key) + '">↩ Wapas laao</button>'
-                : '<button class="bigbtn done" data-act="task-key-done" data-k="' + esc(g.key) + '">✓ Ho gaya</button>') +
+        (i.url ? '<a class="bigbtn kaam" target="_blank" rel="noopener" href="' + esc(i.url) + '">🔗 Open task</a>' : '') +
+        (isDone ? '<button class="bigbtn grey" data-act="task-key-undo" data-k="' + esc(g.key) + '">↩ Reopen</button>'
+                : '<button class="bigbtn done" data-act="task-key-done" data-k="' + esc(g.key) + '">✓ Done</button>') +
       '</div><div class="sec">💬 ' + esc(g.latest.chat) + '</div>' + ctxHtml(g.latest.id);
   }
 
@@ -746,7 +747,7 @@
   function loadReport() {
     var m = $('rmonth');
     if (!m.value) m.value = todayKey().slice(0, 7);
-    $('report').innerHTML = '<div class="empty">Report ban rahi hai…</div>';
+    $('report').innerHTML = '<div class="empty">Preparing report…</div>';
     rpc('getWaReport', [m.value], renderReport, function (e) { $('report').innerHTML = '<div class="banner red">' + esc(e.message) + '</div>'; });
   }
   function renderReport(r) {
@@ -754,33 +755,33 @@
     var pct = function (a, b) { return b ? Math.round(a / b * 100) + '%' : '—'; };
     var monthName = new Date(r.month + '-01T00:00:00').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
     var stat = function (n, label, color) { return '<div class="stat"><b' + (color ? ' style="color:' + color + '"' : '') + '>' + n + '</b><span>' + label + '</span></div>'; };
-    var h = '<div class="card"><h3>📊 ' + esc(monthName) + ' — kya aaya, kitna nipta</h3><div class="stats">' +
-      stat(t.zIn, '⭐ Zaroori aaye') + stat(t.zDone, '✓ Zaroori nipte', 'var(--green)') +
-      stat(t.tIn, '📋 Naye tasks (task system)') + stat(t.tDone, '✓ Tasks close', 'var(--green)') +
-      stat(t.oIn, '👑 Owners ke messages') + stat(t.oDone, '✓ Owners ke nipte', 'var(--green)') +
-      stat(t.wIn, '✅ Work List mein add') + stat(t.wDone, '✓ Work List poore', 'var(--green)') +
-      stat(t.replies, '↩ Dashboard se reply') + '</div></div>' +
-      '<div class="card"><h3>⏱ Kitni jaldi</h3><div class="stats">' +
-      stat(sp.handled, 'Items nipte (Zaroori + Owners)') +
-      stat(sp.medianHours + ' ghante', 'Aadhe items itne mein nipte') +
-      stat(pct(sp.sameDay, sp.handled), '24 ghante ke andar') + stat(pct(sp.within3Days, sp.handled), '3 din ke andar') + '</div></div>' +
-      '<div class="card"><h3>📌 Abhi baaki (aaj tak)</h3><div class="stats">' +
-      stat(o.zaroori, '⭐ Zaroori', o.zaroori ? 'var(--amber)' : '') + stat(o.task, '📋 Tasks', o.task ? 'var(--amber)' : '') +
-      stat(o.owner, '👑 Owners', o.owner ? 'var(--amber)' : '') + stat(o.workList, '✅ Work List khule') +
+    var h = '<div class="card"><h3>📊 ' + esc(monthName) + ' — received vs. handled</h3><div class="stats">' +
+      stat(t.zIn, '⭐ Priority received') + stat(t.zDone, '✓ Priority handled', 'var(--green)') +
+      stat(t.tIn, '📋 New tasks (task system)') + stat(t.tDone, '✓ Tasks closed', 'var(--green)') +
+      stat(t.oIn, '👑 Owner messages') + stat(t.oDone, '✓ Owner messages handled', 'var(--green)') +
+      stat(t.wIn, '✅ Added to Work List') + stat(t.wDone, '✓ Work List completed', 'var(--green)') +
+      stat(t.replies, '↩ Replies sent') + '</div></div>' +
+      '<div class="card"><h3>⏱ Response time</h3><div class="stats">' +
+      stat(sp.handled, 'Items handled (Priority + Owners)') +
+      stat(sp.medianHours + ' h', 'Median time to handle') +
+      stat(pct(sp.sameDay, sp.handled), 'Handled within 24 h') + stat(pct(sp.within3Days, sp.handled), 'Handled within 3 days') + '</div></div>' +
+      '<div class="card"><h3>📌 Open right now</h3><div class="stats">' +
+      stat(o.zaroori, '⭐ Priority', o.zaroori ? 'var(--amber)' : '') + stat(o.task, '📋 Tasks', o.task ? 'var(--amber)' : '') +
+      stat(o.owner, '👑 Owners', o.owner ? 'var(--amber)' : '') + stat(o.workList, '✅ Work List open') +
       stat(o.workListOverdue, 'Work List overdue', o.workListOverdue ? 'var(--red)' : '') + '</div></div>';
     var cell = function (n) { return '<td' + (n ? '' : ' class="z"') + '>' + n + '</td>'; };
-    h += '<div class="sec">🗓 Din-ba-din</div><div class="rwrap"><table class="rt"><thead><tr><th>Din</th>' +
-      '<th>Zaroori aaye</th><th>nipte</th><th>Tasks aaye</th><th>close</th><th>Owners aaye</th><th>nipte</th>' +
-      '<th>Work List add</th><th>poore</th><th>Reply</th></tr></thead><tbody>' +
+    h += '<div class="sec">🗓 Day by day</div><div class="rwrap"><table class="rt"><thead><tr><th>Date</th>' +
+      '<th>Priority in</th><th>handled</th><th>Tasks in</th><th>closed</th><th>Owners in</th><th>handled</th>' +
+      '<th>Work List added</th><th>completed</th><th>Replies</th></tr></thead><tbody>' +
       (r.days.length ? r.days.slice().reverse().map(function (d) {
         var dt = new Date(d.day + 'T00:00:00');
         return '<tr><td>' + dt.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }) + '</td>' +
           cell(d.zIn) + cell(d.zDone) + cell(d.tIn) + cell(d.tDone) + cell(d.oIn) + cell(d.oDone) + cell(d.wIn) + cell(d.wDone) + cell(d.replies) + '</tr>';
-      }).join('') : '<tr><td colspan="10" style="text-align:center;color:var(--sub)">Is mahine abhi kuch nahi</td></tr>') +
-      '</tbody><tfoot><tr><td>Kul</td>' + cell(t.zIn) + cell(t.zDone) + cell(t.tIn) + cell(t.tDone) + cell(t.oIn) + cell(t.oDone) +
+      }).join('') : '<tr><td colspan="10" style="text-align:center;color:var(--sub)">No activity this month yet</td></tr>') +
+      '</tbody><tfoot><tr><td>Total</td>' + cell(t.zIn) + cell(t.zDone) + cell(t.tIn) + cell(t.tDone) + cell(t.oIn) + cell(t.oDone) +
       cell(t.wIn) + cell(t.wDone) + cell(t.replies) + '</tr></tfoot></table></div>' +
-      '<p class="hint">Har item jo kabhi list pe aaya — kab aaya, kab "✓ Ho gaya" hua, kitne ghante lage, reply kya gaya — ' +
-      '"⬇ Saare messages (Excel)" mein hai. Record kabhi delete nahi hota; har raat poore database ka backup bhi banta hai.</p>';
+      '<p class="hint">Every item that has ever been on a list — when it arrived, when it was marked done, hours taken and the reply sent — ' +
+      'is in "⬇ All items (Excel)". The record is never deleted, and the full database is backed up every night.</p>';
     $('report').innerHTML = h;
   }
 
@@ -791,40 +792,40 @@
     var rs = repliesFor(msgId);
     if (!rs.length) return '';
     return rs.map(function (o) {
-      var st = o.status === 'sent' ? '<b style="color:var(--green)">✓ bhej diya ' + fmtTime(o.sentAt) + (o.via === 'wasender' ? ' (WaSender)' : '') + '</b>'
-             : o.status === 'failed' ? '<b style="color:var(--red)">⚠ nahi gaya</b> ' +
-                 '<button class="btn sm" data-act="reply-wasender" data-id="' + esc(o.id) + '">WaSender se bhejo</button>'
-             : '<b style="color:var(--amber)">⏳ line mein — WhatsApp Web se jayega</b>' +
-                 (D.webLive ? '' : ' <button class="btn sm" data-act="reply-wasender" data-id="' + esc(o.id) + '">Abhi WaSender se bhejo</button>');
-      return '<div class="meta">↩ Aapka reply: "' + esc(o.text.slice(0, 80)) + '" — ' + st + '</div>';
+      var st = o.status === 'sent' ? '<b style="color:var(--green)">✓ sent ' + fmtTime(o.sentAt) + (o.via === 'wasender' ? ' (WaSender)' : '') + '</b>'
+             : o.status === 'failed' ? '<b style="color:var(--red)">⚠ not sent</b> ' +
+                 '<button class="btn sm" data-act="reply-wasender" data-id="' + esc(o.id) + '">Send via WaSender</button>'
+             : '<b style="color:var(--amber)">⏳ queued — WhatsApp Web will send it</b>' +
+                 (D.webLive ? '' : ' <button class="btn sm" data-act="reply-wasender" data-id="' + esc(o.id) + '">Send now via WaSender</button>');
+      return '<div class="meta">↩ Your reply: "' + esc(o.text.slice(0, 80)) + '" — ' + st + '</div>';
     }).join('');
   }
-  var QUICK_REPLIES = ['Ji sir, dekh raha hoon 🙏', 'Kal tak ho jayega', 'Payment process mein hai', 'Accounts ko bol diya hai',
-                       'Aaj shaam tak update deta hoon', 'Ho gaya ✅'];
+  var QUICK_REPLIES = ['Noted, looking into it.', 'This will be done by tomorrow.', 'The payment is being processed.',
+                       'I have informed the Accounts team.', 'I will update you by this evening.', 'Done ✅'];
   function openReply(id) {
     var f = flagBy(id);
     if (!f) return;
     var live = D.webLive;
     openModal('↩ Reply — ' + f.chat,
       '<div class="quote">💬 <b>' + esc(f.who) + '</b>: ' + esc(f.text.slice(0, 500)) + '</div>' +
-      '<label>Aapka jawab</label><textarea id="r-text" rows="4" placeholder="Yahan likhiye…"></textarea>' +
+      '<label>Your reply</label><textarea id="r-text" rows="4" placeholder="Type your reply…"></textarea>' +
       '<div class="due" style="margin-top:6px">' + QUICK_REPLIES.map(function (q) {
         return '<button type="button" class="btn sm" data-act="quick-reply" data-q="' + esc(q) + '">' + esc(q) + '</button>';
       }).join('') + '</div>' +
       '<label style="display:flex;gap:6px;align-items:center;font-weight:600;margin-top:10px">' +
-        '<input type="checkbox" id="r-done"' + (f.done ? '' : ' checked') + '> Bhejne ke baad "✓ Ho gaya" kar do</label>' +
+        '<input type="checkbox" id="r-done"' + (f.done ? '' : ' checked') + '> Mark as done once sent</label>' +
       '<p class="hint">' + (live
-        ? '✅ WhatsApp Web chalu hai — jawab <b>is message ko quote karke</b> office number se ' + (f.group ? 'group' : 'chat') + ' mein ~10 second mein jayega.'
-        : '⚠ WhatsApp Web abhi band lag raha hai. Jawab line mein rahega aur tab khulte hi quote ke saath chala jayega — ' +
-          'ya card pe "Abhi WaSender se bhejo" dabake turant (bina quote) bhej sakte hain.') + '</p>',
-      'Bhejo', function (btn) {
+        ? '✅ WhatsApp Web is connected — your reply will be sent from the office number to the ' + (f.group ? 'group' : 'chat') + ', <b>quoting this message</b>, within about 10 seconds.'
+        : '⚠ WhatsApp Web appears to be closed. The reply will be queued and sent, quoted, as soon as it opens — ' +
+          'or use "Send now via WaSender" on the card to send it immediately (without the quote).') + '</p>',
+      'Send', function (btn) {
         var text = $('r-text').value.trim();
-        if (!text) { $('modalErr').textContent = 'Jawab likhiye.'; return; }
+        if (!text) { $('modalErr').textContent = 'Please type a reply.'; return; }
         call('queueWaReply', [{ chat: f.jid, quote: f.id, text: text, flagId: f.id, markDone: $('r-done').checked }], function (res) {
           D.outbox = [{ id: res.id, created: Date.now(), chat: f.jid, quote: f.id, text: text, status: 'pending', via: '', sentAt: 0, error: '' }]
             .concat(D.outbox || []);
           closeModal();
-          toast(res.webLive ? '↩ Line mein — WhatsApp Web 10 sec mein bhej dega' : '↩ Line mein — WhatsApp Web khulte hi jayega');
+          toast(res.webLive ? '↩ Queued — WhatsApp Web will send it in about 10 seconds' : '↩ Queued — it will be sent when WhatsApp Web opens');
           renderZaroori(); renderOwners();
           // Check back once the WhatsApp Web tab has had time to send it.
           setTimeout(function () { load(true); }, 20000);
@@ -868,33 +869,33 @@
     var groups = taskGroups();
     var open = groups.filter(function (g) { return g.open.length; });
     var done = groups.filter(function (g) { return !g.open.length; });
-    $('tchips').innerHTML = [['open', 'Baaki', open.length], ['done', '✓ Aaj ho gaye', done.length]].map(function (ch) {
+    $('tchips').innerHTML = [['open', 'Open', open.length], ['done', '✓ Done today', done.length]].map(function (ch) {
       return '<button class="chip' + (TF === ch[0] ? ' active' : '') + '" data-act="tf" data-f="' + ch[0] + '">' + esc(ch[1]) + '<span class="c">' + ch[2] + '</span></button>';
     }).join('');
     var q = TQ.toLowerCase();
     var list = (TF === 'done' ? done : open).filter(function (g) {
       return !q || (g.info.title + ' ' + g.info.whose + ' ' + g.latest.chat).toLowerCase().indexOf(q) !== -1;
     });
-    $('tcount').textContent = list.length + ' task';
+    $('tcount').textContent = list.length + (list.length === 1 ? ' task' : ' tasks');
     if (!list.length) {
-      $('tlist').innerHTML = '<div class="empty">' + (TF === 'done' ? 'Aaj abhi koi task tick nahi kiya.' : 'Koi task reminder baaki nahi 🎉') + '</div>';
+      $('tlist').innerHTML = '<div class="empty">' + (TF === 'done' ? 'No tasks marked done today yet.' : 'No open task reminders 🎉') + '</div>';
       return;
     }
     $('tlist').innerHTML = '<div class="grid">' + list.map(function (g) {
       var i = g.info, isDone = !g.open.length, n = g.items.length;
       return '<div class="pcard r-tasksys' + (isDone ? ' is-done' : '') + (isSel('task', g.key) ? ' sel' : '') +
         '" data-act="pick" data-kind="task" data-k="' + esc(g.key) + '">' +
-        '<div class="card-top"><span class="supplier">' + esc(i.whose ? i.whose + ' ka task' : 'Task system') + '</span>' +
+        '<div class="card-top"><span class="supplier">' + esc(i.whose ? 'Assigned: ' + i.whose : 'Task system') + '</span>' +
           '<span class="po-date">' + fmtTime(g.latest.t) + '</span></div>' +
         '<div class="po-number">' + esc(i.title) + '</div>' +
-        (i.due ? '<div class="meta">Due tha: <b>' + esc(i.due) + '</b></div>' : '') +
-        '<div class="meta">Reminder: <b>' + n + ' baar</b> · ' + esc(g.latest.chat) + '</div>' +
+        (i.due ? '<div class="meta">Was due: <b>' + esc(i.due) + '</b></div>' : '') +
+        '<div class="meta">Reminders: <b>' + n + '</b> · ' + esc(g.latest.chat) + '</div>' +
         '<div class="pills"><span class="badge-pill r-tasksys">📋 Task system</span>' +
-          (n > 1 ? '<span class="badge-pill r-over">' + n + ' reminder</span>' : '') + '</div>' +
+          (n > 1 ? '<span class="badge-pill r-over">' + n + ' reminders</span>' : '') + '</div>' +
         '<div class="card-actions">' +
-          (i.url ? '<a class="bigbtn kaam" target="_blank" rel="noopener" href="' + esc(i.url) + '">🔗 Task kholo</a>' : '') +
-          (isDone ? '<button class="bigbtn grey" data-act="task-key-undo" data-k="' + esc(g.key) + '">↩ Wapas laao</button>'
-                  : '<button class="bigbtn done" data-act="task-key-done" data-k="' + esc(g.key) + '">✓ Ho gaya</button>') +
+          (i.url ? '<a class="bigbtn kaam" target="_blank" rel="noopener" href="' + esc(i.url) + '">🔗 Open task</a>' : '') +
+          (isDone ? '<button class="bigbtn grey" data-act="task-key-undo" data-k="' + esc(g.key) + '">↩ Reopen</button>'
+                  : '<button class="bigbtn done" data-act="task-key-done" data-k="' + esc(g.key) + '">✓ Done</button>') +
         '</div></div>';
     }).join('') + '</div>';
   }
@@ -904,9 +905,9 @@
   function renderOwners() {
     var flags = (D.flags || []).filter(isOwnerFlag);
     var open = flags.filter(function (f) { return !f.done; });
-    var chips = [['all', 'Sab', open.length]].concat((D.owners || []).map(function (o) {
+    var chips = [['all', 'All', open.length]].concat((D.owners || []).map(function (o) {
       return [o, '👑 ' + o, open.filter(function (f) { return f.owner === o; }).length];
-    })).concat([['done', '✓ Aaj ho gaye', flags.length - open.length]]);
+    })).concat([['done', '✓ Done today', flags.length - open.length]]);
     $('ochips').innerHTML = chips.map(function (ch) {
       return '<button class="chip' + (ch[0] !== 'all' && ch[0] !== 'done' ? ' c-owner' : '') + (OF === ch[0] ? ' active' : '') +
              '" data-act="of" data-f="' + esc(ch[0]) + '">' + esc(ch[1]) + '<span class="c">' + ch[2] + '</span></button>';
@@ -917,16 +918,16 @@
       if (OF !== 'all' && OF !== 'done' && f.owner !== OF) return false;
       return !q || (f.chat + ' ' + f.text).toLowerCase().indexOf(q) !== -1;
     });
-    $('ocount').textContent = list.length + ' dikh rahe';
+    $('ocount').textContent = list.length + ' shown';
     $('olist').innerHTML = list.length ? '<div class="grid">' + list.map(function (f) { return flagCard(f, {}); }).join('') + '</div>'
-      : '<div class="empty">' + (OF === 'done' ? 'Aaj abhi kuch tick nahi kiya.' : 'Owners ka koi message baaki nahi.') + '</div>';
+      : '<div class="empty">' + (OF === 'done' ? 'Nothing marked done today yet.' : 'No pending messages from the owners.') + '</div>';
   }
   function markFlags(ids, done) {
     var now = Date.now();
     ids.forEach(function (id) { var f = flagBy(id); if (f) f.done = done ? now : 0; });
     renderTiles(); renderZaroori(); renderTaskList(); renderOwners(); renderReview();
     if (!narrow()) renderDetail(); else if (!$('modal').hidden && !MODAL_SAVE) closeModal();
-    call('markWaFlags', [ids, done], function () { toast(done ? '✓ Ho gaya' : 'Wapas list mein'); });
+    call('markWaFlags', [ids, done], function () { toast(done ? '✓ Marked done' : 'Reopened'); });
   }
   function kaamFromFlag(id) {
     var f = flagBy(id);
@@ -935,14 +936,14 @@
     openModal('➕ Add to Work List', taskFormHtml('m', { kaam: f.text.slice(0, 300), party: f.group ? shortParty(f.chat) : f.chat,
       type: type, team: guessTeam(type), due: plusDays(1) }) +
       '<div class="quote">💬 <b>' + esc(f.chat) + '</b> — ' + esc(f.who) + ': ' + esc(f.text.slice(0, 400)) + '</div>' +
-      '<label style="display:flex;gap:6px;align-items:center;font-weight:600"><input type="checkbox" id="m-flagdone" checked> Zaroori list se hata do (✓ Ho gaya)</label>',
+      '<label style="display:flex;gap:6px;align-items:center;font-weight:600"><input type="checkbox" id="m-flagdone" checked> Also mark the message as done</label>',
       'Add to Work List', function (btn) {
         var t = readTaskForm('m');
-        if (!t.kaam) { $('modalErr').textContent = 'Kya karna hai, likhiye.'; return; }
+        if (!t.kaam) { $('modalErr').textContent = 'Please describe the work.'; return; }
         t.chat = f.jid; t.msgId = f.id; t.message = f.who + ': ' + f.text;
         var alsoDone = $('m-flagdone').checked;
         call('addWaTask', [t], function (tasks) {
-          D.tasks = tasks; closeModal(); toast('Work List mein add ho gaya ✓');
+          D.tasks = tasks; closeModal(); toast('Added to Work List ✓');
           if (alsoDone) markFlags([f.id], true); else renderAll();
         }, btn);
       });
@@ -972,7 +973,7 @@
     chats.forEach(function (c) { if (!c.muted) cats[c.cat] = (cats[c.cat] || 0) + 1; });
     Object.keys(cats).sort().forEach(function (k) { if (catOrder.indexOf(k) === -1) catOrder.push(k); });
     var muted = chats.filter(function (c) { return c.muted; }).length;
-    var chips = [['all', 'Sab'], ['reply', '🔔 Reply baaki'], ['unseen', '💬 Bina dekhe'], ['calls', '📞 Calls']];
+    var chips = [['all', 'All'], ['reply', '🔔 Awaiting reply'], ['unseen', '💬 Unread'], ['calls', '📞 Calls']];
     catOrder.forEach(function (k) { if (cats[k]) chips.push(['cat:' + k, k, cats[k]]); });
     if (muted) chips.push(['muted', '🔕 Muted', muted]);
     $('chips').innerHTML = chips.map(function (ch) {
@@ -985,9 +986,9 @@
       .sort(function (a, b) { return b.lastPending.t - a.lastPending.t; });
     if (pend.length && (FILTER === 'all' || FILTER === 'reply') && !Q) {
       var cap = FILTER === 'reply' ? pend.length : 8;
-      $('pend').innerHTML = '<div class="pbox"><h3>🔔 Aapko tag kiya / direct message — reply baaki (' + pend.length + ')</h3>' +
+      $('pend').innerHTML = '<div class="pbox"><h3>🔔 Mentions and direct messages awaiting reply (' + pend.length + ')</h3>' +
         pend.slice(0, cap).map(pendHtml).join('') +
-        (pend.length > cap ? '<div class="pi"><button class="btn sm" data-act="filter" data-f="reply">Sab ' + pend.length + ' dikhao</button></div>' : '') +
+        (pend.length > cap ? '<div class="pi"><button class="btn sm" data-act="filter" data-f="reply">Show all ' + pend.length + '</button></div>' : '') +
         '</div>';
     } else {
       $('pend').innerHTML = '';
@@ -995,17 +996,17 @@
 
     var list = chats.filter(passes).sort(function (a, b) { return rank(a) - rank(b) || b.lastT - a.lastT; });
     $('chatList').innerHTML = list.length ? list.map(chatHtml).join('')
-      : '<div class="empty">' + (D.chats.length ? 'Is filter mein kuch nahi.' : 'Is samay ke beech koi message nahi aaya.') + '</div>';
+      : '<div class="empty">' + (D.chats.length ? 'Nothing matches this filter.' : 'No messages in this period.') + '</div>';
   }
 
   function pendHtml(c) {
     var p = c.lastPending;
     return '<div class="pi"><div class="pi1"><b>' + esc(c.name) + '</b><span class="tm">' + fmtTime(p.t) + '</span></div>' +
-      '<div class="pi2"><span class="who">' + esc(p.who) + ':</span> ' + (p.call ? '📞 Call aaya' : hl(p.text)) +
+      '<div class="pi2"><span class="who">' + esc(p.who) + ':</span> ' + (p.call ? '📞 Call received' : hl(p.text)) +
       (c.pending > 1 ? ' <span class="b b-tag">+' + (c.pending - 1) + '</span>' : '') + '</div>' +
-      '<div class="pa"><button class="btn sm" data-act="open" data-jid="' + esc(c.jid) + '">Kholo</button>' +
+      '<div class="pa"><button class="btn sm" data-act="open" data-jid="' + esc(c.jid) + '">Open</button>' +
       '<button class="btn sm" data-act="kaam-msg" data-jid="' + esc(c.jid) + '" data-id="' + esc(p.id) + '">+ Work List</button>' +
-      '<button class="btn sm" data-act="clear" data-jid="' + esc(c.jid) + '">✓ Ho gaya</button></div></div>';
+      '<button class="btn sm" data-act="clear" data-jid="' + esc(c.jid) + '">✓ Done</button></div></div>';
   }
 
   function chatHtml(c) {
@@ -1031,21 +1032,21 @@
     var j = esc(c.jid);
     var h = '<div class="cb">';
     var loaded = CHAT[c.jid];
-    if (!loaded) return h + '<div class="more">Messages aa rahe hain…</div></div>';
-    if (loaded.more) h += '<div class="more">+' + loaded.more + ' purane messages — WhatsApp pe dekhiye</div>';
+    if (!loaded) return h + '<div class="more">Loading messages…</div></div>';
+    if (loaded.more) h += '<div class="more">+' + loaded.more + ' earlier messages — see WhatsApp</div>';
     loaded.msgs.forEach(function (m) {
       h += '<div class="msg' + (m.me ? ' me' : '') + (m.unseen ? ' new' : '') + (m.pending ? ' pend' : '') + '">' +
         '<div class="mh"><b>' + esc(m.who) + '</b><span class="tm">' + fmtTime(m.t) + '</span>' +
-        (m.pending ? '<span class="pt">' + (m.call ? 'call' : m.tag ? '@ aapko tag' : 'reply baaki') + '</span>' : '') +
+        (m.pending ? '<span class="pt">' + (m.call ? 'call' : m.tag ? '@ mentioned' : 'awaiting reply') + '</span>' : '') +
         (m.me ? '' : '<button class="btn sm mk" data-act="kaam-msg" data-jid="' + j + '" data-id="' + esc(m.id) + '">+ Work List</button>') +
         '</div><div class="mt">' + msgText(m) + '</div></div>';
     });
     h += '<div class="cacts">' +
-      (c.pending ? '<button class="btn sm pri" data-act="clear" data-jid="' + j + '">✓ Tag/direct ho gaya</button>' : '') +
+      (c.pending ? '<button class="btn sm pri" data-act="clear" data-jid="' + j + '">✓ Mark handled</button>' : '') +
       '<button class="btn sm" data-act="kaam-chat" data-jid="' + j + '">+ Work List</button>' +
       '<button class="btn sm" data-act="mute" data-jid="' + j + '">' + (c.muted ? '🔔 Unmute' : '🔕 Mute') + '</button>' +
       '<button class="btn sm" data-act="cat" data-jid="' + j + '">🏷 ' + esc(c.cat) + '</button>' +
-      '<button class="btn sm" data-act="toggle" data-jid="' + j + '">Band karo</button>' +
+      '<button class="btn sm" data-act="toggle" data-jid="' + j + '">Close</button>' +
       '</div></div>';
     return h;
   }
@@ -1079,7 +1080,7 @@
     if (!c) return;
     c.pending = 0; c.lastPending = null; c.unseen = 0;
     if (CHAT[c.jid]) CHAT[c.jid].msgs.forEach(function (m) { m.pending = false; });
-    call('clearWaChatTags', [c.jid, c.lastT, c.kind === 'personal' ? c.name : ''], function () { toast('Ho gaya ✓'); });
+    call('clearWaChatTags', [c.jid, c.lastT, c.kind === 'personal' ? c.name : ''], function () { toast('Done ✓'); });
     renderTiles(); renderInbox(); renderReview();
   }
 
@@ -1088,18 +1089,18 @@
     if (!c) return;
     c.muted = !c.muted;
     call('setWaChatMuted', [c.jid, c.muted, c.kind === 'personal' ? c.name : ''],
-         function () { toast(c.muted ? '🔕 Muted — tag karega to phir bhi dikhega' : '🔔 Unmuted'); });
+         function () { toast(c.muted ? '🔕 Muted — mentions will still show' : '🔔 Unmuted'); });
     renderTiles(); renderInbox();
   }
 
   function allSeen(btn) {
     var items = D.chats.filter(function (c) { return c.unseen; })
       .map(function (c) { return { jid: c.jid, t: c.lastT, name: c.kind === 'personal' ? c.name : '' }; });
-    if (!items.length) { toast('Sab pehle se dekha hua hai'); return; }
-    if (!confirm(items.length + ' chats ke messages dekhe hue maan lein? (Tag / direct wale "Reply baaki" mein rahenge.)')) return;
+    if (!items.length) { toast('Everything is already read'); return; }
+    if (!confirm('Mark ' + items.length + ' chats as read? (Mentions and direct messages stay under "Awaiting reply".)')) return;
     D.chats.forEach(function (c) { c.unseen = 0; });
     Object.keys(CHAT).forEach(function (j) { CHAT[j].msgs.forEach(function (m) { m.unseen = false; }); });
-    call('markWaChatsSeen', [items], function () { toast('✓ ' + items.length + ' chats dekh liye'); }, btn);
+    call('markWaChatsSeen', [items], function () { toast('✓ ' + items.length + ' chats marked read'); }, btn);
     renderTiles(); renderInbox();
   }
 
@@ -1108,16 +1109,16 @@
     return list.map(function (x) { return '<option' + (x === sel ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('');
   }
   function taskFormHtml(p, v) {
-    return '<label>Kya karna hai / kya commit kiya?</label>' +
-      '<textarea id="' + p + '-kaam" rows="3" placeholder="jaise: Kal tak payment karwana hai">' + esc(v.kaam || '') + '</textarea>' +
-      '<div class="grid2"><div><label>Party / supplier</label><input type="text" id="' + p + '-party" list="partyList" value="' + esc(v.party || '') + '" placeholder="kiske saath"></div>' +
+    return '<label>What needs to be done / what was committed?</label>' +
+      '<textarea id="' + p + '-kaam" rows="3" placeholder="e.g. Release payment by tomorrow">' + esc(v.kaam || '') + '</textarea>' +
+      '<div class="grid2"><div><label>Party / supplier</label><input type="text" id="' + p + '-party" list="partyList" value="' + esc(v.party || '') + '" placeholder="Who is it with"></div>' +
       '<div><label>Type</label><select id="' + p + '-type" data-act="type-change" data-p="' + p + '">' + opts(D.types, v.type || 'Follow-up') + '</select></div></div>' +
-      '<label>Kab tak</label><div class="due">' +
-        '<button type="button" class="btn sm" data-act="due" data-p="' + p + '" data-n="0">Aaj</button>' +
-        '<button type="button" class="btn sm" data-act="due" data-p="' + p + '" data-n="1">Kal</button>' +
-        '<button type="button" class="btn sm" data-act="due" data-p="' + p + '" data-n="2">Parso</button>' +
+      '<label>Due</label><div class="due">' +
+        '<button type="button" class="btn sm" data-act="due" data-p="' + p + '" data-n="0">Today</button>' +
+        '<button type="button" class="btn sm" data-act="due" data-p="' + p + '" data-n="1">Tomorrow</button>' +
+        '<button type="button" class="btn sm" data-act="due" data-p="' + p + '" data-n="2">In 2 days</button>' +
         '<input type="date" id="' + p + '-due" value="' + esc(v.due || todayKey()) + '"></div>' +
-      '<div class="grid2"><div><label>Kiska kaam</label><select id="' + p + '-team">' + opts(D.teams, v.team || 'Khud') + '</select></div>' +
+      '<div class="grid2"><div><label>Owner</label><select id="' + p + '-team">' + opts(D.teams, v.team || 'Self') + '</select></div>' +
       '<div><label>Note (optional)</label><input type="text" id="' + p + '-note" value="' + esc(v.note || '') + '"></div></div>';
   }
   function readTaskForm(p) {
@@ -1158,16 +1159,16 @@
     if (!m && c.preview && c.preview.id === id) m = c.preview;
     if (!m) (D.callsToday || []).forEach(function (x) { if (x.id === id) m = { id: x.id, t: x.t, call: true, who: c.name, text: '' }; });
     if (m && !id) m = null;
-    var text = m ? (m.call ? 'Call aaya tha — wapas baat karni hai' : m.text) : '';
+    var text = m ? (m.call ? 'Missed call — call back' : m.text) : '';
     var type = guessType(text);
     var v = { kaam: m && !m.call ? text.slice(0, 300) : text, party: c.kind === 'group' ? shortParty(c.name) : c.name,
               type: type, team: guessTeam(type), due: plusDays(1) };
     var quote = m ? '<div class="quote">💬 <b>' + esc(c.name) + '</b> — ' + esc(m.who) + ': ' + esc((m.text || (m.call ? 'call' : '')).slice(0, 400)) + '</div>' : '';
-    openModal('➕ Add to Work List', taskFormHtml('m', v) + quote, 'Save karo', function (btn) {
+    openModal('➕ Add to Work List', taskFormHtml('m', v) + quote, 'Save', function (btn) {
       var t = readTaskForm('m');
-      if (!t.kaam) { $('modalErr').textContent = 'Kya karna hai, likhiye.'; return; }
+      if (!t.kaam) { $('modalErr').textContent = 'Please describe the work.'; return; }
       t.chat = c.jid; t.msgId = m ? m.id : ''; t.message = m ? (m.who + ': ' + (m.text || 'call')) : '';
-      call('addWaTask', [t], function (tasks) { D.tasks = tasks; closeModal(); toast('Work List mein add ho gaya ✓'); renderAll(); }, btn);
+      call('addWaTask', [t], function (tasks) { D.tasks = tasks; closeModal(); toast('Added to Work List ✓'); renderAll(); }, btn);
     });
   }
   function kaamFromChat(jid) {
@@ -1176,20 +1177,20 @@
     openModal('➕ Add to Work List — ' + c.name, taskFormHtml('m', { party: c.kind === 'group' ? shortParty(c.name) : c.name, due: plusDays(1) }),
       'Add to Work List', function (btn) {
         var t = readTaskForm('m');
-        if (!t.kaam) { $('modalErr').textContent = 'Kya karna hai, likhiye.'; return; }
+        if (!t.kaam) { $('modalErr').textContent = 'Please describe the work.'; return; }
         t.chat = c.jid;
-        call('addWaTask', [t], function (tasks) { D.tasks = tasks; closeModal(); toast('Work List mein add ho gaya ✓'); renderAll(); }, btn);
+        call('addWaTask', [t], function (tasks) { D.tasks = tasks; closeModal(); toast('Added to Work List ✓'); renderAll(); }, btn);
       });
   }
 
   function saveQuick(btn) {
     var t = readTaskForm('q');
-    if (!t.kaam) { toast('Kya karna hai, likhiye'); $('q-kaam').focus(); return; }
+    if (!t.kaam) { toast('Please describe the work'); $('q-kaam').focus(); return; }
     call('addWaTask', [t], function (tasks) {
       D.tasks = tasks;
       initQuickForm();
       $('quickBox').open = false;
-      toast('Work List mein add ho gaya ✓');
+      toast('Added to Work List ✓');
       renderAll();
     }, btn);
   }
@@ -1197,12 +1198,12 @@
   function editTask(id) {
     var t = taskBy(id);
     if (!t) return;
-    openModal('✏️ Kaam badlo', taskFormHtml('m', t) +
+    openModal('✏️ Edit Work List item', taskFormHtml('m', t) +
       (t.message ? '<div class="quote">💬 ' + esc(t.message.slice(0, 400)) + '</div>' : '') +
-      '<p class="hint"><button type="button" class="btn sm" data-act="cancel-task" data-id="' + esc(t.id) + '">🗑 Ye kaam hatao</button></p>',
-      'Save karo', function (btn) {
+      '<p class="hint"><button type="button" class="btn sm" data-act="cancel-task" data-id="' + esc(t.id) + '">🗑 Remove this item</button></p>',
+      'Save', function (btn) {
         var v = readTaskForm('m');
-        if (!v.kaam) { $('modalErr').textContent = 'Kaam khaali nahi ho sakta.'; return; }
+        if (!v.kaam) { $('modalErr').textContent = 'The description cannot be empty.'; return; }
         call('updateWaTask', [id, v], function (tasks) { D.tasks = tasks; closeModal(); toast('Save ✓'); renderAll(); }, btn);
       });
   }
@@ -1224,27 +1225,27 @@
     var def = (D.teamGroups || {})[t.team] || '';
     var dueTxt = t.due ? t.due.slice(8, 10) + '-' + t.due.slice(5, 7) + '-' + t.due.slice(0, 4) : '';
     var text = (TYPE_EMOJI[t.type] || '📝') + ' *' + t.type + (t.party ? ' — ' + t.party : '') + '*\n' + t.kaam +
-               (dueTxt ? '\n📅 Kab tak: ' + dueTxt : '') + (t.note ? '\n📝 ' + t.note : '');
-    openModal('📤 Team ko WhatsApp', '<label>Group dhundho</label><input type="text" id="n-find" placeholder="naam likhiye…" data-act="noop">' +
-      '<label>Kis group mein bhejna hai</label><select id="n-group">' + groupOptions('', def) + '</select>' +
+               (dueTxt ? '\n📅 Due: ' + dueTxt : '') + (t.note ? '\n📝 ' + t.note : '');
+    openModal('📤 Send to team on WhatsApp', '<label>Find group</label><input type="text" id="n-find" placeholder="Type a name…" data-act="noop">' +
+      '<label>Send to group</label><select id="n-group">' + groupOptions('', def) + '</select>' +
       '<label>Message</label><textarea id="n-text" rows="6">' + esc(text) + '</textarea>' +
-      '<p class="hint">Ye message office number se us group mein jayega.' +
-      (t.team && t.team !== 'Khud' ? ' Agli baar <b>' + esc(t.team) + '</b> ke liye yahi group pehle se chuna rahega.' : '') + '</p>',
-      'Bhejo', function (btn) {
+      '<p class="hint">This message will be sent to the group from the office number.' +
+      (t.team && t.team !== 'Self' ? ' This group will be pre-selected for <b>' + esc(t.team) + '</b> next time.' : '') + '</p>',
+      'Send', function (btn) {
         var jid = $('n-group').value, msg = $('n-text').value.trim();
-        if (!jid) { $('modalErr').textContent = 'Group chuniye.'; return; }
-        if (!msg) { $('modalErr').textContent = 'Message khaali hai.'; return; }
+        if (!jid) { $('modalErr').textContent = 'Please choose a group.'; return; }
+        if (!msg) { $('modalErr').textContent = 'The message is empty.'; return; }
         call('sendWaTaskToTeam', [id, jid, msg, t.team], function (tasks) {
           D.tasks = tasks;
-          if (t.team && t.team !== 'Khud') D.teamGroups[t.team] = jid;
-          closeModal(); toast('📤 Bhej diya'); renderAll();
+          if (t.team && t.team !== 'Self') D.teamGroups[t.team] = jid;
+          closeModal(); toast('📤 Sent'); renderAll();
         }, btn);
       });
   }
   function groupOptions(find, sel) {
     var f = String(find || '').toLowerCase();
     var list = D.groups.filter(function (g) { return !f || g.name.toLowerCase().indexOf(f) !== -1 || g.jid === sel; });
-    return '<option value="">— group chuniye —</option>' + list.map(function (g) {
+    return '<option value="">— choose a group —</option>' + list.map(function (g) {
       return '<option value="' + esc(g.jid) + '"' + (g.jid === sel ? ' selected' : '') + '>' + esc(g.name) +
              (g.cat && g.cat !== 'Internal' ? ' · ' + esc(g.cat) : '') + '</option>';
     }).join('');
@@ -1257,7 +1258,7 @@
     var src = t.chat ? (chatBy(t.chat) || {}).name || '' : '';
     var id = esc(t.id);
     return '<div class="pcard ' + k + '">' +
-      '<div class="card-top"><span class="supplier">' + esc(t.party || 'Bina party') + '</span>' +
+      '<div class="card-top"><span class="supplier">' + esc(t.party || 'No party') + '</span>' +
         '<span class="po-date">' + (open ? '📅 ' + fmtDue(t.due) : '✓ ' + fmtTime(t.doneAt)) + '</span></div>' +
       '<div class="po-number">' + esc(t.kaam) + '</div>' +
       (src ? '<div class="meta">Chat: <b>' + esc(src) + '</b></div>' : '') +
@@ -1265,16 +1266,16 @@
       (t.note ? '<div class="meta">📝 ' + esc(t.note) + '</div>' : '') +
       (t.notified ? '<div class="meta">📤 Bheja: <b>' + esc(t.notified) + '</b></div>' : '') +
       '<div class="pills"><span class="badge-pill' + (t.type === 'Payment' ? ' r-payment' : t.type === 'Reply' ? ' r-tag' : '') + '">' + esc(t.type) + '</span>' +
-        (t.team && t.team !== 'Khud' ? '<span class="badge-pill r-soft">' + esc(t.team) + '</span>' : '') +
+        (t.team && t.team !== 'Self' ? '<span class="badge-pill r-soft">' + esc(t.team) + '</span>' : '') +
         (k === 'k-over' ? '<span class="badge-pill r-over">Overdue</span>' : '') +
         (t.source === 'WhatsApp #kaam' ? '<span class="badge-pill r-soft">📲 #kaam</span>' : '') + '</div>' +
       '<div class="card-actions">' +
         (open
-          ? '<button class="bigbtn done" data-act="task-done" data-id="' + id + '">✓ Ho gaya</button>' +
-            '<button class="bigbtn teal" data-act="notify" data-id="' + id + '">📤 Team ko bhejo</button>' +
-            '<div class="btnrow">' + (t.due !== tomorrow ? '<button class="bigbtn grey" data-act="postpone" data-id="' + id + '">⏭ Kal pe</button>' : '') +
-            '<button class="bigbtn grey" data-act="edit" data-id="' + id + '">✏️ Badlo</button></div>'
-          : '<button class="bigbtn grey" data-act="task-undo" data-id="' + id + '">↩ Wapas kholo</button>') +
+          ? '<button class="bigbtn done" data-act="task-done" data-id="' + id + '">✓ Done</button>' +
+            '<button class="bigbtn teal" data-act="notify" data-id="' + id + '">📤 Send to team</button>' +
+            '<div class="btnrow">' + (t.due !== tomorrow ? '<button class="bigbtn grey" data-act="postpone" data-id="' + id + '">⏭ Tomorrow</button>' : '') +
+            '<button class="bigbtn grey" data-act="edit" data-id="' + id + '">✏️ Edit</button></div>'
+          : '<button class="bigbtn grey" data-act="task-undo" data-id="' + id + '">↩ Reopen</button>') +
       '</div></div>';
   }
   function taskGrid(list) { return '<div class="grid">' + list.map(taskHtml).join('') + '</div>'; }
@@ -1283,21 +1284,21 @@
 
   function renderKaam() {
     var teams = {};
-    D.tasks.forEach(function (t) { if (t.status === 'Open') teams[t.team || 'Khud'] = (teams[t.team || 'Khud'] || 0) + 1; });
-    var chips = [['all', 'Sab']].concat(D.teams.filter(function (k) { return teams[k]; }).map(function (k) { return [k, k, teams[k]]; }));
+    D.tasks.forEach(function (t) { if (t.status === 'Open') teams[t.team || 'Self'] = (teams[t.team || 'Self'] || 0) + 1; });
+    var chips = [['all', 'All']].concat(D.teams.filter(function (k) { return teams[k]; }).map(function (k) { return [k, k, teams[k]]; }));
     $('teamChips').innerHTML = chips.map(function (ch) {
       return '<button class="chip' + (TEAM === ch[0] ? ' active' : '') + '" data-act="team" data-t="' + esc(ch[0]) + '">' +
              esc(ch[1]) + (ch[2] ? '<span class="c">' + ch[2] + '</span>' : '') + '</button>';
     }).join('');
 
     var t0 = todayKey(), t1 = plusDays(1);
-    var mine = D.tasks.filter(function (t) { return TEAM === 'all' || (t.team || 'Khud') === TEAM; });
+    var mine = D.tasks.filter(function (t) { return TEAM === 'all' || (t.team || 'Self') === TEAM; });
     var open = mine.filter(function (t) { return t.status === 'Open'; }).sort(sortTasks);
     var groups = [
       ['⏰ Overdue', 'red', open.filter(function (t) { return t.due && t.due < t0; })],
-      ['📌 Aaj', '', open.filter(function (t) { return !t.due || t.due === t0; })],
-      ['🗓️ Kal', '', open.filter(function (t) { return t.due === t1; })],
-      ['➡️ Aage', '', open.filter(function (t) { return t.due > t1; })]
+      ['📌 Today', '', open.filter(function (t) { return !t.due || t.due === t0; })],
+      ['🗓️ Tomorrow', '', open.filter(function (t) { return t.due === t1; })],
+      ['➡️ Later', '', open.filter(function (t) { return t.due > t1; })]
     ];
     var doneToday = mine.filter(function (t) { return t.status === 'Done' && dayKey(t.doneAt) === t0; });
     var doneEarlier = mine.filter(function (t) { return t.status === 'Done' && dayKey(t.doneAt) !== t0; });
@@ -1306,9 +1307,9 @@
       if (!g[2].length) return;
       h += '<div class="sec ' + g[1] + '">' + g[0] + ' <span class="c">(' + g[2].length + ')</span></div>' + taskGrid(g[2]);
     });
-    if (!open.length) h += '<div class="empty">Work List khaali hai 🎉</div>';
-    if (doneToday.length) h += '<div class="sec">✅ Aaj poore hue (' + doneToday.length + ')</div>' + taskGrid(doneToday);
-    if (doneEarlier.length) h += '<details><summary>Pichle 7 din mein poore (' + doneEarlier.length + ')</summary>' + taskGrid(doneEarlier) + '</details>';
+    if (!open.length) h += '<div class="empty">Work List is empty 🎉</div>';
+    if (doneToday.length) h += '<div class="sec">✅ Completed today (' + doneToday.length + ')</div>' + taskGrid(doneToday);
+    if (doneEarlier.length) h += '<details><summary>Completed in the last 7 days (' + doneEarlier.length + ')</summary>' + taskGrid(doneEarlier) + '</details>';
     $('taskList').innerHTML = h;
   }
 
@@ -1333,63 +1334,63 @@
 
     var d = new Date();
     var title = d.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' });
-    var h = '<div class="card"><h3>🌆 Aaj ka hisaab — ' + esc(title) + '</h3><div class="stats">' +
-      '<div class="stat"><b>' + madeToday.length + '</b><span>Work List mein aaj add</span></div>' +
-      '<div class="stat"><b>' + doneToday.length + '</b><span>Aaj poore</span></div>' +
-      '<div class="stat"><b>' + open.length + '</b><span>Work List khule</span></div>' +
+    var h = '<div class="card"><h3>🌆 Daily review — ' + esc(title) + '</h3><div class="stats">' +
+      '<div class="stat"><b>' + madeToday.length + '</b><span>Added to Work List today</span></div>' +
+      '<div class="stat"><b>' + doneToday.length + '</b><span>Completed today</span></div>' +
+      '<div class="stat"><b>' + open.length + '</b><span>Work List open</span></div>' +
       '<div class="stat"><b style="color:var(--red)">' + over.length + '</b><span>Overdue</span></div>' +
-      '<div class="stat"><b style="color:var(--amber)">' + pend.length + '</b><span>Reply baaki</span></div>' +
-      '</div><p class="hint">Kal ke liye kuch khiskaana hai to ⏭ dabaiye; jo ho gaya use ✓ kar dijiye.</p>' +
-      '<button class="btn pri" data-act="brief">📲 Ye hisaab mujhe WhatsApp pe bhejo</button></div>';
+      '<div class="stat"><b style="color:var(--amber)">' + pend.length + '</b><span>Awaiting reply</span></div>' +
+      '</div><p class="hint">Use ⏭ to move an item to tomorrow, and ✓ to mark it done.</p>' +
+      '<button class="btn pri" data-act="brief">📲 Send this review to me on WhatsApp</button></div>';
 
     var zOpen = (D.flags || []).filter(function (f) { return !f.done && isZaroori(f); });
     var tOpen = openTaskGroups().length;
     var oOpen = (D.flags || []).filter(function (f) { return !f.done && isOwnerFlag(f); }).length;
     if (tOpen || oOpen) {
       h += '<div class="card"><div class="stats">' +
-        '<div class="stat"><b style="color:var(--teal)">' + tOpen + '</b><span>📋 Task list baaki</span></div>' +
-        '<div class="stat"><b style="color:#b45309">' + oOpen + '</b><span>👑 Owners ke messages</span></div></div>' +
+        '<div class="stat"><b style="color:var(--teal)">' + tOpen + '</b><span>📋 Open tasks</span></div>' +
+        '<div class="stat"><b style="color:#b45309">' + oOpen + '</b><span>👑 Owner messages</span></div></div>' +
         '<p class="hint"><button class="btn sm" data-act="view" data-v="tasks">📋 Task List</button> ' +
         '<button class="btn sm" data-act="view" data-v="owners">👑 Owners</button></p></div>';
     }
     if (zOpen.length) {
       var zc = function (k) { return zOpen.filter(function (f) { return f.reasons.indexOf(k) !== -1; }).length; };
-      h += '<div class="sec">⭐ Zaroori — abhi baaki (' + zOpen.length + ')</div><div class="card">' +
+      h += '<div class="sec">⭐ Priority — pending (' + zOpen.length + ')</div><div class="card">' +
         '<div class="stats"><div class="stat"><b>' + zc('tag') + '</b><span>@ Tag</span></div>' +
         '<div class="stat"><b>' + zc('neeraj') + '</b><span>Neeraj</span></div>' +
         '<div class="stat"><b>' + zc('payment') + '</b><span>Payment</span></div></div>' +
-        '<p class="hint"><button class="btn sm pri" data-act="view" data-v="zaroori">⭐ Zaroori list kholo</button></p></div>';
+        '<p class="hint"><button class="btn sm pri" data-act="view" data-v="zaroori">⭐ Open Priority list</button></p></div>';
     }
     if (over.length) h += '<div class="sec red">⏰ Overdue (' + over.length + ')</div>' + taskGrid(over);
-    if (todayLeft.length) h += '<div class="sec">📌 Aaj ke baaki (' + todayLeft.length + ')</div>' + taskGrid(todayLeft);
-    if (tomorrow.length) h += '<div class="sec">🗓️ Kal ke liye (' + tomorrow.length + ')</div>' + taskGrid(tomorrow);
+    if (todayLeft.length) h += '<div class="sec">📌 Due today (' + todayLeft.length + ')</div>' + taskGrid(todayLeft);
+    if (tomorrow.length) h += '<div class="sec">🗓️ Due tomorrow (' + tomorrow.length + ')</div>' + taskGrid(tomorrow);
 
     if (pend.length) {
-      h += '<div class="sec">🔔 Tag / direct — reply baaki (' + pend.length + ')</div><div class="card">' +
+      h += '<div class="sec">🔔 Mentions / direct messages awaiting reply (' + pend.length + ')</div><div class="card">' +
         pend.map(function (c) {
           var p = c.lastPending;
           return '<div class="rl"><span class="x"><b>' + esc(c.name) + '</b> — ' + esc(p.who) + ': ' +
             (p.call ? '📞 call' : esc(p.text.slice(0, 140))) + ' <span class="tm">' + fmtTime(p.t) + '</span></span>' +
-            '<button class="btn sm" data-act="open" data-jid="' + esc(c.jid) + '">Kholo</button>' +
+            '<button class="btn sm" data-act="open" data-jid="' + esc(c.jid) + '">Open</button>' +
             '<button class="btn sm" data-act="kaam-msg" data-jid="' + esc(c.jid) + '" data-id="' + esc(p.id) + '">+ Work List</button></div>';
         }).join('') + '</div>';
     }
     if (calls.length) {
-      h += '<div class="sec">📞 Aaj ke WhatsApp calls (' + calls.length + ')</div><div class="card">' +
+      h += '<div class="sec">📞 WhatsApp calls today (' + calls.length + ')</div><div class="card">' +
         calls.map(function (x) {
           return '<div class="rl"><span class="x"><b>' + esc(x.c.name) + '</b> <span class="tm">' + fmtTime(x.m.t) + '</span></span>' +
             '<button class="btn sm" data-act="kaam-msg" data-jid="' + esc(x.c.jid) + '" data-id="' + esc(x.m.id) + '">+ Work List</button></div>';
         }).join('') + '</div>';
     }
     if (madeToday.length) {
-      h += '<details><summary>🆕 Aaj Work List mein add hue (' + madeToday.length + ')</summary>' + taskGrid(madeToday) + '</details>';
+      h += '<details><summary>🆕 Added to Work List today (' + madeToday.length + ')</summary>' + taskGrid(madeToday) + '</details>';
     }
     if (busy.length) {
-      h += '<div class="sec">💬 Aaj kahan kitne messages aaye</div><div class="card">' +
+      h += '<div class="sec">💬 Messages by chat today</div><div class="card">' +
         busy.slice(0, 25).map(function (x) {
           return '<div class="rl"><span class="x">' + esc(x.c.name) + '</span><span class="tm">' + x.n + ' msg' +
-            (x.c.unseen ? ' · <b style="color:var(--blue)">' + x.c.unseen + ' bina dekhe</b>' : '') + '</span>' +
-            '<button class="btn sm" data-act="open" data-jid="' + esc(x.c.jid) + '">Kholo</button></div>';
+            (x.c.unseen ? ' · <b style="color:var(--blue)">' + x.c.unseen + ' unread</b>' : '') + '</span>' +
+            '<button class="btn sm" data-act="open" data-jid="' + esc(x.c.jid) + '">Open</button></div>';
         }).join('') + '</div>';
     }
     $('review').innerHTML = h;
@@ -1399,16 +1400,16 @@
     var c = chatBy(jid);
     if (!c) return;
     var cats = ['Supplier', 'Internal', 'Customer', 'Personal', 'Other'];
-    openModal('🏷 Category — ' + c.name, '<label>Ye chat kis type ka hai?</label><select id="cat-sel">' + opts(cats, c.cat) + '</select>',
-      'Save karo', function (btn) {
+    openModal('🏷 Category — ' + c.name, '<label>What kind of chat is this?</label><select id="cat-sel">' + opts(cats, c.cat) + '</select>',
+      'Save', function (btn) {
         var v = $('cat-sel').value;
         call('setWaChatCategory', [c.jid, v], function () { c.cat = v; closeModal(); renderInbox(); toast('Save ✓'); }, btn);
       });
   }
 
   function copyText(t) {
-    try { navigator.clipboard.writeText(t).then(function () { toast('Copy ho gaya'); }); }
-    catch (e) { prompt('Copy kar lijiye:', t); }
+    try { navigator.clipboard.writeText(t).then(function () { toast('Copied'); }); }
+    catch (e) { prompt('Copy this:', t); }
   }
 
   // ---------- SETUP ----------
@@ -1419,38 +1420,38 @@
     var ok = s.status === 'connected';
     var webOk = s.webSync && (Date.now() - s.webSync) < 6 * 3600000;
     $('setup').innerHTML =
-      '<div class="card"><h3>1. WhatsApp Web se messages (Chrome)</h3>' +
-      '<p class="hint" style="margin-top:0">Status: ' + (s.webSync ? (webOk ? '<b style="color:var(--green)">✓ chal raha hai</b>' : '<b style="color:var(--amber)">pichli baar ' + fmtTime(s.webSync) + '</b> — WhatsApp Web tab khula hai?')
-                                                    : '<b style="color:var(--red)">abhi shuru nahi hua</b>') + '</p>' +
+      '<div class="card"><h3>1. Messages from WhatsApp Web (Chrome)</h3>' +
+      '<p class="hint" style="margin-top:0">Status: ' + (s.webSync ? (webOk ? '<b style="color:var(--green)">✓ running</b>' : '<b style="color:var(--amber)">last seen ' + fmtTime(s.webSync) + '</b> — is the WhatsApp Web tab open?')
+                                                    : '<b style="color:var(--red)">not started yet</b>') + '</p>' +
       '<ol class="hint" style="padding-left:18px;margin:6px 0">' +
-      '<li>Chrome mein <a target="_blank" rel="noopener" href="https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo">Tampermonkey</a> install kijiye (free).</li>' +
-      '<li>Chrome ke <b>Extensions</b> page pe Tampermonkey ke <b>Details</b> kholiye aur <b>"Allow User Scripts"</b> ON kijiye ' +
-          '(ye option na dikhe to upar right mein <b>Developer mode</b> ON kijiye).</li>' +
-      '<li>Ye button dabaiye, Tampermonkey kholega — <b>Install</b> dabaiye: ' +
-          '<a class="btn sm pri" style="text-decoration:none" target="_blank" href="' + esc(s.scriptUrl) + '">⬇ Script install karo</a></li>' +
-      '<li>WhatsApp Web ka tab <b>reload</b> kijiye. Neeche left mein hara <b>"XP Inbox: live ✓"</b> dikhega.</li></ol>' +
-      '<p class="hint">Jab tak WhatsApp Web khula hai, har naya message yahan aata rahega. Tab kholte hi pichhle 2 din ke messages bhi aa jaate hain.</p>' +
-      '<p class="hint">Button kaam na kare to: Tampermonkey → <b>Create a new script</b> → sab mita ke ' +
-          '<button class="btn sm" data-act="copy-script">script copy karo</button> wala paste → Save.</p></div>' +
+      '<li>Install <a target="_blank" rel="noopener" href="https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo">Tampermonkey</a> in Chrome (free).</li>' +
+      '<li>In Chrome <b>Extensions</b>, open Tampermonkey <b>Details</b> and turn on <b>"Allow User Scripts"</b> ' +
+          '(if the option is missing, turn on <b>Developer mode</b> at the top right).</li>' +
+      '<li>Click this button and choose <b>Install</b> in Tampermonkey: ' +
+          '<a class="btn sm pri" style="text-decoration:none" target="_blank" href="' + esc(s.scriptUrl) + '">⬇ Install script</a></li>' +
+      '<li><b>Reload</b> the WhatsApp Web tab. A green <b>"XP Inbox: live ✓"</b> label appears at the bottom left.</li></ol>' +
+      '<p class="hint">While WhatsApp Web is open, every new message arrives here. Opening the tab also loads the last 2 days of messages.</p>' +
+      '<p class="hint">If the button does not work: Tampermonkey → <b>Create a new script</b> → clear it, then paste the ' +
+          '<button class="btn sm" data-act="copy-script">copied script</button> → Save.</p></div>' +
       '<div class="card"><h3>WaSender webhook (optional)</h3>' +
-      '<p class="hint" style="margin-top:0">Agar kabhi WaSender dashboard mil jaye: is URL ko Webhook mein daal ke events <b>messages.upsert</b> + <b>call</b> on karne se ' +
-      'computer band hone pe bhi messages aate rahenge.</p>' +
+      '<p class="hint" style="margin-top:0">If WaSender dashboard access becomes available: set this URL as the webhook with events <b>messages.upsert</b> and <b>call</b>, and ' +
+      'messages will keep arriving even when this computer is off.</p>' +
       '<div class="due"><input type="text" readonly value="' + esc(s.webhookUrl) + '" onclick="this.select()">' +
       '<button class="btn sm" data-act="copy" data-text="' + esc(s.webhookUrl) + '">Copy</button></div>' +
-      '<p class="hint">Ye URL (aur script) kisi ko mat dijiye — isme aapke inbox ki chaabi hai.</p></div>' +
-      '<div class="card"><h3>Haalat</h3><div class="stats">' +
+      '<p class="hint">Do not share this URL or the script — they carry the key to your inbox.</p></div>' +
+      '<div class="card"><h3>Status</h3><div class="stats">' +
       '<div class="stat"><b style="color:' + (ok ? 'var(--green)' : 'var(--red)') + '">' + (ok ? '✓' : '✕') + '</b><span>WaSender: ' + esc(s.status) + '</span></div>' +
       '<div class="stat"><b>' + s.msgs + '</b><span>Messages saved</span></div>' +
-      '<div class="stat"><b>' + (s.lastArrival ? fmtTime(s.lastArrival) : '—') + '</b><span>Pichla message</span></div>' +
+      '<div class="stat"><b>' + (s.lastArrival ? fmtTime(s.lastArrival) : '—') + '</b><span>Last message</span></div>' +
       '<div class="stat"><b>' + s.groups + '</b><span>Groups</span></div>' +
       '<div class="stat"><b>' + s.contacts + '</b><span>Contacts</span></div></div>' +
-      '<p class="hint">Group ke naam har 6 ghante, contacts har raat apne aap aate hain. ' +
-      (s.namesSynced ? 'Pichli baar: ' + fmtTime(s.namesSynced) + '. ' : '') + '</p>' +
-      '<button class="btn" data-act="sync">⟳ Group names + contacts abhi laao</button></div>' +
-      '<div class="card"><h3>WhatsApp pe summary</h3>' +
-      '<p class="hint">Subah ~9:30 aaj ke kaam aur reply baaki; shaam 7 baje din ka hisaab — office number pe.</p>' +
-      (s.briefs ? '<button class="btn" data-act="briefs" data-on="0">🔕 Band karo (abhi ON hai)</button>'
-                : '<button class="btn pri" data-act="briefs" data-on="1">🔔 Chalu karo</button>') + '</div>' +
+      '<p class="hint">Group names refresh every 6 hours and contacts every night. ' +
+      (s.namesSynced ? 'Last refreshed: ' + fmtTime(s.namesSynced) + '. ' : '') + '</p>' +
+      '<button class="btn" data-act="sync">⟳ Refresh group names and contacts now</button></div>' +
+      '<div class="card"><h3>WhatsApp summary</h3>' +
+      '<p class="hint">Around 9:30 AM: today\'s work and pending items. At 7 PM: the daily review. Sent to the office number.</p>' +
+      (s.briefs ? '<button class="btn" data-act="briefs" data-on="0">🔕 Turn off (currently on)</button>'
+                : '<button class="btn pri" data-act="briefs" data-on="1">🔔 Turn on</button>') + '</div>' +
       '<div class="card"><a class="btn" style="text-decoration:none" href="/logout">Logout</a></div>';
   }
 
@@ -1498,8 +1499,8 @@
     else if (a === 'reply') openReply(id);
     else if (a === 'quick-reply') { var ta = $('r-text'); ta.value = (ta.value ? ta.value.trim() + ' ' : '') + el.dataset.q; ta.focus(); }
     else if (a === 'reply-wasender') {
-      if (confirm('WaSender se abhi bhejein? Isme original message quote nahi hoga.')) {
-        call('sendWaReplyNow', [id], function () { toast('📤 Bhej diya (WaSender)'); load(true); }, el);
+      if (confirm('Send now via WaSender? The original message will not be quoted.')) {
+        call('sendWaReplyNow', [id], function () { toast('📤 Sent via WaSender'); load(true); }, el);
       }
     }
     else if (a === 'tf') { TF = el.dataset.f; renderTaskList(); }
@@ -1510,15 +1511,15 @@
         .map(function (f) { return f.id; });
       markFlags(ids, done);
     }
-    else if (a === 'task-done') setTask(id, { status: 'Done' }, '✅ Ho gaya');
-    else if (a === 'task-undo') setTask(id, { status: 'Open' }, 'Wapas khula');
+    else if (a === 'task-done') setTask(id, { status: 'Done' }, '✅ Completed');
+    else if (a === 'task-undo') setTask(id, { status: 'Open' }, 'Reopened');
     else if (a === 'flag-undo') markFlags([id], false);
     else if (a === 'flag-group') {
       markFlags((D.flags || []).filter(function (f) { return f.jid === jid && !f.done &&
         (ZF === 'all' || f.reasons.indexOf(ZF) !== -1); }).map(function (f) { return f.id; }), true);
     }
     else if (a === 'kaam-flag') kaamFromFlag(id);
-    else if (a === 'sync') call('syncWaNames', [], function (n) { toast(n + ' groups ke naam aa gaye'); loadSetup(); load(true); }, el);
+    else if (a === 'sync') call('syncWaNames', [], function (n) { toast(n + ' group names refreshed'); loadSetup(); load(true); }, el);
     else if (a === 'briefs') call('setWaBriefs', [el.dataset.on === '1'], function () { loadSetup(); }, el);
     else if (a === 'copy') copyText(el.dataset.text);
     else if (a === 'copy-script') {
@@ -1531,23 +1532,23 @@
     else if (a === 'team') { TEAM = el.dataset.t; renderKaam(); }
     else if (a === 'notify') openNotify(id);
     else if (a === 'edit') editTask(id);
-    else if (a === 'postpone') setTask(id, { due: plusDays(1) }, '⏭ Kal pe daal diya');
+    else if (a === 'postpone') setTask(id, { due: plusDays(1) }, '⏭ Moved to tomorrow');
     else if (a === 'cancel-task') {
-      if (confirm('Ye kaam hata dein?')) { closeModal(); setTask(id, { status: 'Cancelled' }, 'Hata diya'); }
+      if (confirm('Remove this item?')) { closeModal(); setTask(id, { status: 'Cancelled' }, 'Removed'); }
     }
     else if (a === 'due') { $(el.dataset.p + '-due').value = plusDays(Number(el.dataset.n)); }
     else if (a === 'modal-close') closeModal();
     else if (a === 'modal-save') { if (MODAL_SAVE) MODAL_SAVE(el); }
     else if (a === 'brief') {
-      if (confirm('Aaj ka hisaab office number pe WhatsApp karein?')) {
-        call('sendWaBriefNow', ['evening'], function () { toast('📲 WhatsApp pe bhej diya'); }, el);
+      if (confirm('Send today\'s review to the office number on WhatsApp?')) {
+        call('sendWaBriefNow', ['evening'], function () { toast('📲 Sent on WhatsApp'); }, el);
       }
     }
   });
   document.addEventListener('change', function (e) {
     var el = e.target;
     if (el.dataset && el.dataset.act === 'done') {
-      setTask(el.dataset.id, { status: el.checked ? 'Done' : 'Open' }, el.checked ? '✅ Ho gaya' : 'Wapas khula');
+      setTask(el.dataset.id, { status: el.checked ? 'Done' : 'Open' }, el.checked ? '✅ Completed' : 'Reopened');
     } else if (el.dataset && el.dataset.act === 'type-change') {
       var p = el.dataset.p;
       if ($(p + '-team')) $(p + '-team').value = guessTeam(el.value);

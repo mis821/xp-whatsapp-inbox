@@ -57,7 +57,7 @@
       var sender = wid(senderWid);
       // For media, `body` holds a thumbnail, not words — only the caption / file name is text.
       var text = type === 'chat' ? (m.body || '') : (m.caption || m.filename || '');
-      if (type === 'call_log') text = (m.isVideoCall ? 'Video call ' : 'Call ') + (m.callOutcome === 'missed' ? 'missed' : 'aaya');
+      if (type === 'call_log') text = (m.isVideoCall ? 'Video call ' : 'Call ') + (m.callOutcome === 'missed' ? 'missed' : 'received');
       return {
         id: m.id.id, t: (m.t || 0) * 1000, chat: chat, chat_name: name || '', from_me: fromMe ? 1 : 0,
         sender: sender, sender_phone: /@s\.whatsapp\.net$/.test(sender) ? sender.split('@')[0] : phoneOf(senderWid),
@@ -78,7 +78,7 @@
           if (!from) return;
           emit([{ id: 'call:' + c.id, t: c.offerTime ? c.offerTime * 1000 : Date.now(), chat: from, chat_name: chatName(c.sender || c.peerJid),
                   from_me: 0, sender: from, sender_phone: /@s\.whatsapp\.net$/.test(from) ? from.split('@')[0] : '', sender_name: '',
-                  type: c.isVideo ? 'video call' : 'call', text: (c.isVideo ? 'Video call' : 'Call') + ' aaya', mentions: '', reply_to: '' }]);
+                  type: c.isVideo ? 'video call' : 'call', text: (c.isVideo ? 'Video call' : 'Call') + ' received', mentions: '', reply_to: '' }]);
         });
       } catch (e) { /* older WA-JS without call events — messages still flow */ }
       backfill();
@@ -89,7 +89,7 @@
     async function backfill() {
       var since = Date.now() / 1000 - DAYS_BACK * 86400;
       var chats = [];
-      try { chats = await WPP.chat.list(); } catch (e) { status('live ✓ (purane messages nahi mil paaye)'); return; }
+      try { chats = await WPP.chat.list(); } catch (e) { status('live ✓ (earlier messages could not be loaded)'); return; }
       chats = chats.filter(function (c) { return (c.t || 0) >= since; });
       var done = 0, total = 0;
       for (var i = 0; i < chats.length; i++) {
@@ -103,7 +103,7 @@
           total += rows.length;
         } catch (e) { /* skip this chat */ }
         done++;
-        if (done % 10 === 0) status('purane messages: ' + done + '/' + chats.length + ' chats');
+        if (done % 10 === 0) status('loading earlier messages: ' + done + '/' + chats.length + ' chats');
         await new Promise(function (r) { setTimeout(r, 40); });
       }
       status('live ✓');
@@ -150,7 +150,7 @@
             var ok = true, err = '';
             try { await sendOne(items[i]); } catch (e) { ok = false; err = (e && e.message) || String(e); }
             await bridge('/wa-outbox', 'POST', { id: items[i].id, ok: ok, error: err });
-            status(ok ? 'live ✓ · reply bheja' : '⚠ reply nahi gaya: ' + err.slice(0, 60));
+            status(ok ? 'live ✓ · reply sent' : '⚠ reply not sent: ' + err.slice(0, 60));
           }
         }
       } catch (e) { /* next round */ }
@@ -158,7 +158,7 @@
     }
     function startReplies() {
       if (document.documentElement.getAttribute('data-xpwa-bridge') !== '1') {
-        status('live ✓ · ↩ Reply ke liye script update kijiye (Setup → script copy karo)');
+        status('live ✓ · update the script to enable replies (Setup → copy script)');
         return;
       }
       pollOutbox();
@@ -172,9 +172,9 @@
       } else if (tries > 0) {
         setTimeout(function () { waitForWpp(tries - 1); }, 500);
       } else {
-        status('⚠ WA-JS shuru nahi hua (' + (window.WPP ? 'WPP: ' + Object.keys(WPP).slice(0, 8).join(',') : 'WPP nahi mila') + ') — page reload kijiye');
+        status('⚠ WA-JS did not start (' + (window.WPP ? 'WPP: ' + Object.keys(WPP).slice(0, 8).join(',') : 'WPP not found') + ') — please reload the page');
       }
     }
-    status('WhatsApp ke ready hone ka intezaar…');
+    status('waiting for WhatsApp to load…');
     waitForWpp(120);
   })();

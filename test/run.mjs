@@ -123,7 +123,7 @@ assert.equal(by('Mahesh').pending, 0); assert.equal(by('Store').muted, true);
 assert.equal(by('Vendor').cat, 'Customer');
 
 // tasks
-let tasks = await rpc('addWaTask', { kaam: '=SUM(1) +91 wale ko call', party: 'Maruti', type: 'Reply', due: dayKey(now - 2 * 86400000), team: 'Khud' });
+let tasks = await rpc('addWaTask', { kaam: '=SUM(1) +91 wale ko call', party: 'Maruti', type: 'Reply', due: dayKey(now - 2 * 86400000), team: 'Self' });
 const t3 = tasks.find(t => t.party === 'Maruti');
 assert.equal(t3.kaam, '=SUM(1) +91 wale ko call');
 tasks = await rpc('updateWaTask', t3.id, { status: 'Done', note: 'ho gaya' });
@@ -132,12 +132,12 @@ const before = tasks.length;
 tasks = await rpc('addWaTask', { kaam: 'pehla', msgId: 'M1', chat: 'G1@g.us' });
 tasks = await rpc('addWaTask', { kaam: 'doosra', msgId: 'M1', chat: 'G1@g.us' });
 assert.equal(tasks.length, before + 2, 'two tasks from one message both saved');
-await assert.rejects(rpc('addWaTask', { kaam: ' ' }), /khaali/);
-await assert.rejects(rpc('addWaTask', { kaam: 'x', due: '12/10' }), /Due/);
+await assert.rejects(rpc('addWaTask', { kaam: ' ' }), /empty|describe/);
+await assert.rejects(rpc('addWaTask', { kaam: 'x', due: '12/10' }), /due date/);
 tasks = await rpc('sendWaTaskToTeam', k1.id, 'G2@g.us', 'Payment — Jyoti kal', 'Accounts');
 assert.match(tasks.find(t => t.id === k1.id).notified, /Internal Payment Request/);
-await assert.rejects(rpc('sendWaTaskToTeam', k1.id, '1@s.whatsapp.net', 'x', 'Accounts'), /Group/);
-await assert.rejects(rpc('sendWaTaskToTeam', 'nope', 'G2@g.us', 'x', 'Accounts'), /Task/);
+await assert.rejects(rpc('sendWaTaskToTeam', k1.id, '1@s.whatsapp.net', 'x', 'Accounts'), /group/);
+await assert.rejects(rpc('sendWaTaskToTeam', 'nope', 'G2@g.us', 'x', 'Accounts'), /not found/);
 assert.equal(sent.length, 1);
 d = await rpc('getWaInbox', 2);
 assert.equal(d.teamGroups.Accounts, 'G2@g.us');
@@ -217,7 +217,7 @@ assert.equal(zf('Z2').done, 0, 'undo');
 await post({ event: 'xp.rows', data: { rows: [{ id: 'Z1', t: now - 50000, chat: 'G1@g.us', sender: '777@lid', text: 'Sir 3 bill ka payment pending hai' }] } });
 d = await rpc('getWaInbox', 2);
 assert.ok(zf('Z1').done > 0, 'redelivery keeps it done');
-assert.match(briefText(d, 'evening'), /Zaroori baaki/);
+assert.match(briefText(d, 'evening'), /Priority pending/);
 // nightly prune keeps old messages that are still open on the list
 env.DB.raw.prepare("UPDATE messages SET received_at = ? WHERE id IN ('Z2', 'Z3')").run(now - 40 * 86400000);
 await worker.scheduled({ cron: '0 21 * * *' }, env, ctx);
@@ -241,7 +241,7 @@ await post({ event: 'xp.rows', data: { rows: [
 d = await rpc('getWaInbox', 2);
 assert.deepEqual(zf('O1').reasons, ['owner']); assert.equal(zf('O1').owner, 'Anant Sir');
 assert.deepEqual(zf('R1').reasons, ['tasksys']); assert.deepEqual(zf('R2').reasons, ['tasksys']);
-assert.match(briefText(d, 'evening'), /Task List: 1 task baaki/);
+assert.match(briefText(d, 'evening'), /Open tasks: 1/);
 // rules changed after messages were stored: the version bump re-checks them (old flags get new reasons)
 env.DB.raw.prepare("UPDATE flags SET reasons = 'neeraj' WHERE msg_id = 'R1'").run();
 env.DB.raw.prepare("DELETE FROM settings WHERE k = 'flags_version'").run();
@@ -268,8 +268,8 @@ const obUrl = ob.pathname + ob.search;
 assert.equal((await req('/wa-outbox?token=nope')).status, 401);
 d = await rpc('getWaInbox', 2);
 assert.equal(d.webLive, false, 'no WhatsApp Web yet');
-await assert.rejects(rpc('queueWaReply', { chat: 'G1@g.us', quote: 'M1', text: '  ' }), /khaali/);
-await assert.rejects(rpc('queueWaReply', { chat: 'nope@g.us', text: 'x' }), /list mein nahi/);
+await assert.rejects(rpc('queueWaReply', { chat: 'G1@g.us', quote: 'M1', text: '  ' }), /empty|describe/);
+await assert.rejects(rpc('queueWaReply', { chat: 'nope@g.us', text: 'x' }), /not in the list/);
 const q1 = await rpc('queueWaReply', { chat: 'G1@g.us', quote: 'M1', text: 'Ji sir, kal tak', flagId: 'M1', markDone: true });
 let claim = await (await req(obUrl)).json();
 assert.deepEqual(claim.items.map(i => [i.id, i.chat, i.quote, i.text]), [[q1.id, 'G1@g.us', 'M1', 'Ji sir, kal tak']]);
@@ -301,7 +301,7 @@ assert.equal(d.outbox.find(o => o.id === q3.id).status, 'failed');
 const cx = await rpc('getWaContext', 'Z2');
 assert.equal(cx.msg.text, 'Neeraj sir se baat ho gayi');
 assert.ok(cx.around.some(m => m.focus && m.id === 'Z2') && cx.around.length > 1);
-await assert.rejects(rpc('getWaContext', 'nope'), /nahi mila/);
+await assert.rejects(rpc('getWaContext', 'nope'), /not found/);
 
 // Report + export
 const rp = await rpc('getWaReport', dayKey(now).slice(0, 7));
@@ -309,7 +309,7 @@ assert.ok(rp.totals.zIn > 0 && rp.totals.tIn === 1, 'zaroori counted, task remin
 assert.ok(rp.totals.zDone > 0 && rp.speed.handled > 0);
 assert.ok(rp.totals.replies >= 2 && rp.openNow.task === 1);
 const csv = await (await req('/export/items.csv', { headers: { cookie } })).text();
-assert.ok(csv.replace(/^\ufeff/, '').startsWith('Received,List,Why') && /Task List/.test(csv) && /Zaroori/.test(csv));
+assert.ok(csv.replace(/^\ufeff/, '').startsWith('Received,List,Why') && /Task List/.test(csv) && /Priority/.test(csv));
 assert.ok(/"'=SUM/.test(await (await req('/export/worklist.csv', { headers: { cookie } })).text()), 'formula-looking text defused for Excel');
 assert.match(await (await req('/export/items.csv')).text(), /password/, 'export needs login');
 // nightly clean-up keeps every listed message, ticked or not

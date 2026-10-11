@@ -1,67 +1,38 @@
 # XP WhatsApp Inbox
 
-Office number (XP Purchase) ke 260+ WhatsApp groups ka private dashboard.
-Ye PO tracker se bilkul alag project hai. Isme koi Google Sheet nahi hai: ye Cloudflare Workers pe chalta hai aur data Cloudflare D1 database mein rehta hai (free plan).
-
-## Kya milta hai
-- **Inbox:** har group ke saare messages, bina tag wale bhi, aur har chat mein "bina dekhe" count.
-  Jisme aapko tag kiya ho, aapke message pe reply aaya ho, personal message ho ya WhatsApp call ho, wo upar **"Reply baaki"** mein rukta hai. Wo tab tak wahan rehta hai jab tak aap WhatsApp pe jawab na de dein ya "✓ Ho gaya" na dabayein.
-- **Mere Kaam:** commitments (payment, material, follow-up) due date aur team ke saath.
-  "📤 Team ko bhejo" dabane se kaam Accounts ya Store ke group mein chala jata hai.
-  Phone se: apne "Message yourself" chat mein `#kaam Party: kya promise kiya kal` likhiye, task turant ban jayega.
-- **Shaam ka hisaab:** overdue kaam, kal ke kaam, reply baaki, aaj ke calls aur kahan kitne messages aaye.
-  Setup mein summary chalu karenge to subah 9:30 aur shaam 7 baje ye summary aapke WhatsApp pe aayegi.
+A private dashboard for the office WhatsApp number (XP Purchase) and its 260+ groups.
+It is a standalone project — separate from the PO Tracker, with no Google Sheets. It runs on
+Cloudflare Workers, with data in a Cloudflare D1 database (free plan).
 
 ## Tabs
-- **⭐ Zaroori:** sirf woh messages jahan aapko group mein tag kiya, "Neeraj" likha hai, ya payment maangi gayi hai. Ye tab tak rehte hain jab tak "✓ Ho gaya" na dabayein.
-- **📋 Task List:** task system (tools.xpertpack.in) ke daily reminders. Har task ka sirf ek card banta hai.
-- **👑 Owners:** Anant Sir, Hitesh Sir aur Raj Kumar Sir ke saare messages. Inke numbers `src/app.js` ki `OWNERS` list mein hain.
-- **✅ Mere Kaam**, **🌆 Shaam ka hisaab**, **💬 Sab chats**, **⚙️ Setup**.
-- Screen 70:30 mein bati hai. Kisi card pe click karne se right side mein poora message, us chat ki aas-paas ki baat-cheet aur saare buttons dikhte hain.
-- **↩ Reply karo:** dashboard pe jawab likhiye. WhatsApp Web us message ko quote karke reply bhej deta hai. Tab band ho to WaSender se bina quote ke bhej sakte hain.
-- GPS / vehicle wale update kahin nahi dikhte.
+- **⭐ Priority** — only messages where you are mentioned in a group, where "Neeraj" is named, or where a payment is raised. Items stay until marked **✓ Done**; reading or replying on WhatsApp does not clear them.
+- **📋 Task List** — daily reminders from the task system (tools.xpertpack.in), one card per task however many reminders arrive.
+- **👑 Owners** — every message from Anant Sir, Hitesh Sir and Raj Kumar Sir (numbers in `OWNERS` in `src/app.js`).
+- **✅ Work List** — commitments and follow-ups with due date and owner; can be sent to a team's WhatsApp group.
+- **🌆 Daily Review**, **💬 All Chats**, **📊 Report**, **⚙️ Setup**.
+- The screen is split 70 : 30 — click a card to see the full message, the conversation around it and every action on the right.
+- **↩ Reply** — write a reply on the dashboard; WhatsApp Web sends it as a quoted reply from the office number (WaSender is the unquoted fallback when that tab is closed).
+- GPS / vehicle position updates are never shown.
 
-## Speed
-Inbox khulte hi sirf list aati hai (har chat ka count aur aakhri message).
-Test mein 30,000 messages aur 266 chats pe ye **125 KB mein ~90 ms** mein load hui.
-Kisi chat ke messages tabhi aate hain jab aap use kholte hain (~9 KB).
+## Record and backup
+- Every message that has ever been on a list, every Work List item and every reply is kept permanently; only ordinary chat messages are cleared after 30 days.
+- **📊 Report** shows, per month, what came in and what was handled, response times and what is open now. Both lists download as Excel (CSV).
+- The **Backup** workflow exports the full database every night (kept 90 days under Actions → Backup → Artifacts). Cloudflare D1 additionally keeps 30 days of point-in-time history.
 
-## Setup (ek baar, ~15 min)
-1. **Cloudflare account (free):** https://dash.cloudflare.com/sign-up
-   Login ke baad ek baar **Workers & Pages** page kholiye. Isse aapka `*.workers.dev` address ban jata hai.
-2. **API token:** My Profile → API Tokens → Create Token → template **"Edit Cloudflare Workers"** chuniye.
-   Usme ek permission aur jodiye: **Account → D1 → Edit**. Phir Create dabaiye aur token copy kar lijiye.
-   **Account ID** aapko Workers & Pages page pe right side mein milega.
-3. **GitHub secrets:** is repo mein Settings → Secrets and variables → Actions → New repository secret. Ye 4 secrets daaliye:
-   | Name | Value |
-   |---|---|
-   | `CLOUDFLARE_API_TOKEN` | step 2 ka token |
-   | `CLOUDFLARE_ACCOUNT_ID` | step 2 ka Account ID |
-   | `WASENDER_API_KEY` | WaSender → aapka session → API key |
-   | `DASHBOARD_PASSWORD` | dashboard kholne ka password (lamba rakhiye) |
-4. **Deploy:** Actions → Deploy → Run workflow. Khatam hone pe Summary mein dashboard ka URL dikhega.
-5. **Messages lana (WhatsApp Web se):** dashboard kholiye → **⚙️ Setup**:
-   - Chrome mein **Tampermonkey** install kijiye. Extensions → Tampermonkey → Details mein **"Allow User Scripts"** ON kijiye.
-   - **⬇ Script install karo** dabaiye → Tampermonkey mein **Install** dabaiye.
-   - WhatsApp Web (office number) ka tab reload kijiye. Neeche left mein **"XP Inbox: live ✓"** dikhega.
-   - Jab tak WhatsApp Web ka tab khula hai, messages aate rahenge. Tab kholte hi pichhle 2 din ke messages bhi aa jaate hain.
-   - *Optional:* WaSender dashboard mil jaye to Setup tab ka webhook URL wahan daal dijiye. Phir computer band hone pe bhi messages aate rahenge.
-6. Setup tab mein "Group names + contacts abhi laao" dabaiye. Chahein to WhatsApp summary bhi chalu kar dijiye.
-
-Iske baad `main` pe har push apne aap deploy ho jayega.
-
-## Dhyan rahe
-- Computer ya WhatsApp Web ka tab band ho to us beech ke messages tab aayenge, jab tab dobara khulega (pichhle 2 din tak ke).
-- Messages 30 din baad apne aap mit jaate hain. Kaam (tasks) kabhi nahi mitte.
-- Webhook URL mein ek secret token hai. Ye URL kisi ko mat dijiye.
+## Setup (once)
+1. **Cloudflare account (free):** https://dash.cloudflare.com/sign-up — open **Workers & Pages** once so the `*.workers.dev` address is created.
+2. **API token:** My Profile → API Tokens → Create Token → template **"Edit Cloudflare Workers"**, add **Account → D1 → Edit**. Note the **Account ID** shown on Workers & Pages.
+3. **GitHub secrets** (Settings → Secrets and variables → Actions): `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `WASENDER_API_KEY`, `DASHBOARD_PASSWORD`.
+4. **Deploy:** Actions → Deploy → Run workflow. The summary shows the dashboard URL. Every push to `main` deploys automatically.
+5. **Messages from WhatsApp Web:** dashboard → ⚙️ Setup → install Tampermonkey, enable "Allow User Scripts", install the script, reload WhatsApp Web. A green "XP Inbox: live ✓" label confirms it is running.
 
 ## Code
-| File | Kya hai |
+| File | Purpose |
 |---|---|
-| `src/app.js` | webhook, database, login, inbox/kaam/summary, cron |
-| `src/inbox.html` | dashboard page |
-| `src/wa-sync.user.js` | Tampermonkey script: WhatsApp Web ke messages padh kar dashboard ko bhejti hai ([WA-JS](https://github.com/wppconnect-team/wa-js) ke zariye). Sirf padhti hai, kuch bhejti nahi |
-| `migrations/0001_init.sql` | database tables |
-| `wrangler.toml` | Worker config, cron times (UTC) |
-| `test/run.mjs` | end-to-end tests (`node test/run.mjs`): asli SQL, nakli WaSender |
-| `test/serve.mjs` | local demo server, sample data ke saath (password `demo`) |
+| `src/app.js` | Webhook, database, login, Priority / Task List / Owners rules, Work List, replies, report, export, scheduled jobs |
+| `src/inbox.html` | The dashboard |
+| `src/wa-sync.user.js` | Tampermonkey loader: forwards WhatsApp Web messages, and is the bridge for replies |
+| `src/wa-core.js` | Runs inside WhatsApp Web (served by the Worker, so updates need no reinstall) |
+| `migrations/` | Database tables |
+| `test/run.mjs` | End-to-end tests (`node test/run.mjs`) with real SQL and a fake WaSender |
+| `test/serve.mjs` | Local demo server with sample data (password `demo`) |

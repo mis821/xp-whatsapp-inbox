@@ -28,7 +28,7 @@ const KEYWORDS = ['payment', 'pay', 'paisa', 'urgent', 'jaldi', 'asap', 'po', 'b
   'dispatch', 'material', 'maal', 'rate', 'delivery', 'pending', 'kab', 'cheque', 'neft', 'rtgs',
   'ledger', 'outstanding', 'advance', 'short', 'reject', 'damage', 'quality', 'vehicle', 'gaadi'];
 const TASK_TYPES = ['Payment', 'Material', 'Follow-up', 'Reply', 'Other'];
-const TEAMS = ['Khud', 'Accounts', 'Store', 'Purchase', 'Production', 'Quality', 'Dispatch'];
+const TEAMS = ['Self', 'Accounts', 'Store', 'Purchase', 'Production', 'Quality', 'Dispatch'];
 const KAAM_RE = /^\s*#(kaam|task|todo)\b/i;
 
 // What makes a message "zaroori". Checked on the text as sent (before @digits are turned into names).
@@ -186,7 +186,7 @@ const KIND_BY_KEY = {
 // person said, and counting them would inflate every "new messages" badge.
 const SKIP_KEYS = ['reactionMessage', 'protocolMessage', 'pollUpdateMessage',
   'senderKeyDistributionMessage', 'messageContextInfo', 'keepInChatMessage'];
-const CALL_STATUS = { offer: 'aaya', ringing: 'aaya', timeout: 'missed', reject: 'kaata', accept: 'uthaya' };
+const CALL_STATUS = { offer: 'received', ringing: 'received', timeout: 'missed', reject: 'declined', accept: 'answered' };
 
 function unwrap(msg) {
   for (let depth = 0; depth < 4; depth++) {
@@ -244,7 +244,7 @@ export function rowsFrom(body, now) {
       is_group: c.isGroup ? 1 : 0, from_me: 0, sender: String(c.from),
       sender_phone: c.callerPn ? digits(c.callerPn) : digits(c.from), sender_name: '',
       type: c.isVideo ? 'video call' : 'call',
-      text: (c.isVideo ? 'Video call ' : 'Call ') + (CALL_STATUS[c.status] || 'aaya'), mentions: '', reply_to: ''
+      text: (c.isVideo ? 'Video call ' : 'Call ') + (CALL_STATUS[c.status] || 'received'), mentions: '', reply_to: ''
     }));
   }
   let list = data.messages;
@@ -407,7 +407,7 @@ export function parseKaam(text, atMs) {
     : /\b(material|maal|dispatch|delivery|gaadi|vehicle|stock|sample)\b/.test(low) ? 'Material'
     : /\b(reply|jawab|call back|callback|batana)\b/.test(low) ? 'Reply' : 'Follow-up';
   const team = /\baccounts?\b/.test(low) ? 'Accounts' : /\bstore\b/.test(low) ? 'Store'
-    : type === 'Payment' ? 'Accounts' : 'Khud';
+    : type === 'Payment' ? 'Accounts' : 'Self';
   return { kaam: body || String(text), party, due: dayKey(due), type, team };
 }
 
@@ -630,7 +630,7 @@ async function getChat(env, jid, daysArg) {
 async function getContext(env, msgId) {
   const sf = await selfFilter(env);
   const m = await env.DB.prepare('SELECT * FROM messages WHERE id = ?').bind(String(msgId)).first();
-  if (!m) throw new Error('Message nahi mila (30 din se purana ho sakta hai).');
+  if (!m) throw new Error('Message not found (it may be older than 30 days).');
   const cols = 'id, t, chat, from_me, sender, sender_phone, sender_name, type, text, tag';
   const before = (await env.DB.prepare('SELECT ' + cols + ' FROM messages WHERE chat = ? AND t < ? ORDER BY t DESC LIMIT 12')
     .bind(m.chat, m.t).all()).results.reverse();
@@ -718,15 +718,15 @@ async function insertTask(env, t) {
   ).bind(newId(), t.created || Date.now(), t.source || 'Dashboard',
          TASK_TYPES.indexOf(t.type) !== -1 ? t.type : 'Other', String(t.party || '').trim().slice(0, 200),
          String(t.kaam).trim().slice(0, 2000), t.due || dayKey(Date.now()),
-         TEAMS.indexOf(t.team) !== -1 ? t.team : 'Khud', t.chat || null,
+         TEAMS.indexOf(t.team) !== -1 ? t.team : 'Self', t.chat || null,
          t.kaamMsgId || null, t.msgId || null,
          String(t.message || '').slice(0, 2000), String(t.note || '').slice(0, 1000)).run();
 }
 
 async function addTask(env, t) {
   t = t || {};
-  if (!String(t.kaam || '').trim()) throw new Error('Kaam khaali hai — kya karna hai likhiye.');
-  if (t.due && !DUE_RE.test(String(t.due))) throw new Error('Due date samajh nahi aayi.');
+  if (!String(t.kaam || '').trim()) throw new Error('Please describe the work.');
+  if (t.due && !DUE_RE.test(String(t.due))) throw new Error('The due date is not valid.');
   await insertTask(env, Object.assign({}, t, { source: t.msgId ? 'Message' : 'Dashboard' }));
   return tasksOut(env);
 }
@@ -734,18 +734,18 @@ async function addTask(env, t) {
 async function updateTask(env, id, patch) {
   patch = patch || {};
   const cur = await env.DB.prepare('SELECT * FROM tasks WHERE id = ?').bind(String(id)).first();
-  if (!cur) throw new Error('Task nahi mila — page refresh karke dekhiye.');
+  if (!cur) throw new Error('Item not found — please refresh the page.');
   const sets = [], vals = [];
   if (patch.status !== undefined) {
     const st = ['Open', 'Done', 'Cancelled'].indexOf(patch.status) !== -1 ? patch.status : 'Open';
     sets.push('status = ?', 'done_at = ?'); vals.push(st, st === 'Done' ? Date.now() : null);
   }
   if (patch.due !== undefined) {
-    if (patch.due && !DUE_RE.test(String(patch.due))) throw new Error('Due date samajh nahi aayi.');
+    if (patch.due && !DUE_RE.test(String(patch.due))) throw new Error('The due date is not valid.');
     sets.push('due = ?'); vals.push(patch.due || null);
   }
   if (patch.kaam !== undefined) {
-    if (!String(patch.kaam).trim()) throw new Error('Kaam khaali nahi ho sakta.');
+    if (!String(patch.kaam).trim()) throw new Error('The description cannot be empty.');
     sets.push('kaam = ?'); vals.push(String(patch.kaam).trim().slice(0, 2000));
   }
   if (patch.party !== undefined) { sets.push('party = ?'); vals.push(String(patch.party).trim().slice(0, 200)); }
@@ -760,16 +760,16 @@ async function updateTask(env, id, patch) {
 // — this is not a general "send anywhere".
 async function sendToTeam(env, id, groupJid, text, team) {
   groupJid = String(groupJid || ''); text = String(text || '').trim();
-  if (!/@g\.us$/.test(groupJid)) throw new Error('Group chuniye.');
-  if (!text) throw new Error('Message khaali hai.');
+  if (!/@g\.us$/.test(groupJid)) throw new Error('Please choose a group.');
+  if (!text) throw new Error('The message is empty.');
   const g = await env.DB.prepare('SELECT name FROM chats WHERE jid = ?').bind(groupJid).first();
-  if (!g) throw new Error('Ye group list mein nahi hai — Setup mein "Group names refresh" dabaiye.');
+  if (!g) throw new Error('This group is not in the list — use "Refresh group names" in Setup.');
   const task = await env.DB.prepare('SELECT id FROM tasks WHERE id = ?').bind(String(id)).first();
-  if (!task) throw new Error('Task nahi mila — page refresh karke dekhiye.');
+  if (!task) throw new Error('Item not found — please refresh the page.');
   await wa(env, 'POST', '/send-message', { to: groupJid, text });
   const stamp = new Date(Date.now() + IST).toISOString().replace(/^\d{4}-(\d\d)-(\d\d)T(\d\d:\d\d).*/, '$2-$1 $3') + ' → ' + (g.name || 'group');
   await env.DB.prepare('UPDATE tasks SET notified = ? WHERE id = ?').bind(stamp, String(id)).run();
-  if (TEAMS.indexOf(team) !== -1 && team !== 'Khud') {
+  if (TEAMS.indexOf(team) !== -1 && team !== 'Self') {
     const map = JSON.parse((await getSetting(env, 'team_groups')) || '{}');
     map[team] = groupJid;
     await setSetting(env, 'team_groups', JSON.stringify(map));
@@ -789,10 +789,10 @@ async function webLive(env) {
 async function queueReply(env, o) {
   o = o || {};
   const chat = String(o.chat || ''), text = String(o.text || '').trim();
-  if (!text) throw new Error('Jawab khaali hai.');
-  if (text.length > 4000) throw new Error('Jawab bahut lamba hai.');
+  if (!text) throw new Error('The reply is empty.');
+  if (text.length > 4000) throw new Error('The reply is too long.');
   const known = await env.DB.prepare('SELECT 1 AS x FROM chats WHERE jid = ?').bind(chat).first();
-  if (!known) throw new Error('Ye chat list mein nahi hai — page refresh karke dekhiye.');
+  if (!known) throw new Error('This chat is not in the list — please refresh the page.');
   const id = 'R' + Date.now().toString(36) + randomHex(3);
   await env.DB.prepare('INSERT INTO outbox (id, created, chat, quote, text, flag_id, mark_done) VALUES (?, ?, ?, ?, ?, ?, ?)')
     .bind(id, Date.now(), chat, o.quote ? String(o.quote) : null, text, o.flagId ? String(o.flagId) : null, o.markDone ? 1 : 0).run();
@@ -802,12 +802,12 @@ async function queueReply(env, o) {
 // The fallback: straight through WaSender, no quote (WaSender can only quote what it sent itself).
 async function sendReplyNow(env, id) {
   const o = await env.DB.prepare('SELECT * FROM outbox WHERE id = ?').bind(String(id)).first();
-  if (!o) throw new Error('Reply nahi mila.');
+  if (!o) throw new Error('Reply not found.');
   if (o.status === 'sent') return true;
-  if (o.status === 'sending' && Date.now() - (o.claimed_at || 0) < 120000) throw new Error('WhatsApp Web abhi bhej raha hai — thoda rukiye.');
+  if (o.status === 'sending' && Date.now() - (o.claimed_at || 0) < 120000) throw new Error('WhatsApp Web is sending it right now — please wait a moment.');
   let to = o.chat;
   if (/@s\.whatsapp\.net$/.test(to)) to = '+' + to.split('@')[0];
-  else if (/@lid$/.test(to)) throw new Error('Is chat ka number pata nahi — WhatsApp Web khol ke bhejiye.');
+  else if (/@lid$/.test(to)) throw new Error('The phone number for this chat is unknown — please send it from WhatsApp Web.');
   await wa(env, 'POST', '/send-message', { to, text: o.text });
   await finishReply(env, o, true, 'wasender', '');
   return true;
@@ -824,7 +824,7 @@ async function finishReply(env, o, ok, via, error) {
 async function outboxClaim(env) {
   const now = Date.now();
   if (now - (Number(await getSetting(env, 'web_seen')) || 0) > 60000) await setSetting(env, 'web_seen', now);
-  await env.DB.prepare("UPDATE outbox SET status = 'failed', error = 'WhatsApp Web ne jawab nahi diya' WHERE status = 'sending' AND claimed_at < ?")
+  await env.DB.prepare("UPDATE outbox SET status = 'failed', error = 'WhatsApp Web did not respond' WHERE status = 'sending' AND claimed_at < ?")
     .bind(now - 120000).run();
   const r = await env.DB.prepare(
     "UPDATE outbox SET status = 'sending', claimed_at = ? WHERE id IN (SELECT id FROM outbox WHERE status = 'pending' AND created > ? " +
@@ -944,10 +944,10 @@ async function exportCsv(env, which) {
     const rep = {};
     (await env.DB.prepare("SELECT quote, sent_at, text FROM outbox WHERE status = 'sent'").all()).results
       .forEach(o => { if (o.quote) rep[o.quote] = o; });
-    rows = [['Received', 'List', 'Why', 'Group / chat', 'From', 'Owner', 'Message', 'Task id', 'Handled (Ho gaya)', 'Hours taken', 'Reply sent', 'Reply']]
+    rows = [['Received', 'List', 'Why', 'Group / chat', 'From', 'Owner', 'Message', 'Task id', 'Marked done', 'Hours taken', 'Reply sent', 'Reply']]
       .concat(r.map(f => {
         const kind = kindOf(f.reasons);
-        return [istTime(f.t), kind === 'task' ? 'Task List' : kind === 'owner' ? 'Owners' : 'Zaroori', f.reasons,
+        return [istTime(f.t), kind === 'task' ? 'Task List' : kind === 'owner' ? 'Owners' : 'Priority', f.reasons,
           f.chat_name || f.chat, f.sender_name || (f.sender_phone ? '+' + f.sender_phone : ''), ownerOf(f.sender_phone),
           f.text, kind === 'task' ? taskKey(f.text) : '', istTime(f.done_at),
           f.done_at && f.done_at >= f.t ? Math.round((f.done_at - f.t) / 36e5 * 10) / 10 : '',
@@ -1009,12 +1009,12 @@ export function briefText(d, kind) {
   const doneToday = d.tasks.filter(t => t.status === 'Done' && t.doneAt && dayKey(t.doneAt) === today);
   const dm = key => key ? key.slice(8, 10) + '-' + key.slice(5, 7) : '';
   const taskLine = t => '• ' + (t.party ? '*' + t.party + '* — ' : '') + t.kaam.slice(0, 120) +
-    (t.team && t.team !== 'Khud' ? ' [' + t.team + ']' : '') + (t.due && t.due < today ? ' (due ' + dm(t.due) + ')' : '');
+    (t.team && t.team !== 'Self' ? ' [' + t.team + ']' : '') + (t.due && t.due < today ? ' (due ' + dm(t.due) + ')' : '');
   const section = (title, items, fn, cap) => {
     if (!items.length) return [];
     const out = ['', title + ' (' + items.length + ')'];
     items.slice(0, cap).forEach(x => out.push(fn(x)));
-    if (items.length > cap) out.push('…aur ' + (items.length - cap));
+    if (items.length > cap) out.push('…and ' + (items.length - cap) + ' more');
     return out;
   };
   const allOpen = (d.flags || []).filter(f => !f.done);
@@ -1024,23 +1024,23 @@ export function briefText(d, kind) {
   const fcount = k => openFlags.filter(f => f.reasons.indexOf(k) !== -1).length;
   const flagLine = f => '• *' + f.chat + '* — ' + f.who + ': "' + f.text.replace(/\s+/g, ' ').slice(0, 80) + '"';
   const zaroori = openFlags.length
-    ? ['', '⭐ *Zaroori baaki: ' + openFlags.length + '* (@tag ' + fcount('tag') + ' · Neeraj ' + fcount('neeraj') + ' · payment ' + fcount('payment') + ')']
-        .concat(openFlags.slice(0, 12).map(flagLine), openFlags.length > 12 ? ['…aur ' + (openFlags.length - 12)] : [])
+    ? ['', '⭐ *Priority pending: ' + openFlags.length + '* (mentions ' + fcount('tag') + ' · Neeraj ' + fcount('neeraj') + ' · payment ' + fcount('payment') + ')']
+        .concat(openFlags.slice(0, 12).map(flagLine), openFlags.length > 12 ? ['…and ' + (openFlags.length - 12) + ' more'] : [])
     : [];
   const extra = [];
-  if (taskKeys.size) extra.push('📋 Task List: ' + taskKeys.size + ' task baaki');
-  if (ownerOpen.length) extra.push('👑 Owners ke messages: ' + ownerOpen.length);
+  if (taskKeys.size) extra.push('📋 Open tasks: ' + taskKeys.size);
+  if (ownerOpen.length) extra.push('👑 Owner messages pending: ' + ownerOpen.length);
   const extraLines = extra.length ? [''].concat(extra) : [];
   let L = [];
   if (kind === 'morning') {
-    L.push('☀️ *Good morning — aaj ki Work List* (' + dm(today) + ')');
-    L = L.concat(extraLines, zaroori, section('⏰ *Overdue*', overdue, taskLine, 10), section('📌 *Aaj*', dueToday, taskLine, 15));
-    if (!overdue.length && !dueToday.length && !openFlags.length) L.push('', 'Sab clear hai ✅');
+    L.push('☀️ *Good morning — today\'s Work List* (' + dm(today) + ')');
+    L = L.concat(extraLines, zaroori, section('⏰ *Overdue*', overdue, taskLine, 10), section('📌 *Due today*', dueToday, taskLine, 15));
+    if (!overdue.length && !dueToday.length && !openFlags.length) L.push('', 'All clear ✅');
   } else {
-    L.push('🌆 *Aaj ka hisaab* — ' + dm(today));
-    L.push('✅ Aaj poore hue: ' + doneToday.length + '   📝 Work List khule: ' + open.length);
-    L = L.concat(extraLines, zaroori, section('⏰ *Overdue*', overdue, taskLine, 10), section('📌 *Aaj ke baaki*', dueToday, taskLine, 10),
-      section('🗓️ *Kal ke liye*', dueTomorrow, taskLine, 10));
+    L.push('🌆 *Daily review* — ' + dm(today));
+    L.push('✅ Completed today: ' + doneToday.length + '   📝 Work List open: ' + open.length);
+    L = L.concat(extraLines, zaroori, section('⏰ *Overdue*', overdue, taskLine, 10), section('📌 *Still due today*', dueToday, taskLine, 10),
+      section('🗓️ *Due tomorrow*', dueTomorrow, taskLine, 10));
   }
   return L.join('\n');
 }
@@ -1116,14 +1116,14 @@ async function isAuthed(req, env) {
 }
 async function login(req, env) {
   const fails = JSON.parse((await getSetting(env, 'login_fails')) || '{"n":0,"t":0}');
-  if (fails.n >= 10 && Date.now() - fails.t < 15 * 60000) return loginPage('Bahut galat koshish — 15 minute baad try kijiye.', 429);
+  if (fails.n >= 10 && Date.now() - fails.t < 15 * 60000) return loginPage('Too many failed attempts — please try again in 15 minutes.', 429);
   const form = await req.formData();
   const pw = String(form.get('password') || '');
   if (!env.DASHBOARD_PASSWORD || !safeEq(pw, env.DASHBOARD_PASSWORD)) {
     const n = Date.now() - fails.t < 15 * 60000 ? fails.n + 1 : 1;
     await setSetting(env, 'login_fails', JSON.stringify({ n, t: Date.now() }));
     await new Promise(r => setTimeout(r, 800));
-    return loginPage('Password galat hai.', 401);
+    return loginPage('Incorrect password.', 401);
   }
   await setSetting(env, 'login_fails', JSON.stringify({ n: 0, t: 0 }));
   const exp = Date.now() + SESSION_DAYS * DAY;
@@ -1144,7 +1144,7 @@ function loginPage(err, status) {
     '@media (prefers-color-scheme:dark){body{background:#111214;color:#e8e8ea}form{background:#1b1c1f;border-color:#2d2f34}input{background:#111214;color:#e8e8ea;border-color:#2d2f34}}' +
     '</style></head><body><form method="post" action="/login"><h1>📥 WhatsApp Inbox</h1>' +
     '<input type="password" name="password" placeholder="Password" autofocus autocomplete="current-password">' +
-    '<button type="submit">Kholo</button>' + (err ? '<div class="e">' + err + '</div>' : '') + '</form></body></html>';
+    '<button type="submit">Sign in</button>' + (err ? '<div class="e">' + err + '</div>' : '') + '</form></body></html>';
   return new Response(html, { status: status || 200, headers: Object.assign({ 'Content-Type': 'text/html; charset=utf-8' }, SEC_HEADERS) });
 }
 

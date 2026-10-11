@@ -1,0 +1,35 @@
+# Health check, run by hand from the Actions tab: counts only — never message text or names.
+name: Check
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install -g wrangler@4
+      - name: Counts
+        run: |
+          q() { wrangler d1 execute xp_wa_inbox --remote --json --command "$1" | node -e '
+            let s = ""; process.stdin.on("data", d => s += d).on("end", () => {
+              const r = JSON.parse(s); console.log(JSON.stringify(r[0].results, null, 1)); });'; }
+          echo "== messages by source"
+          q "SELECT event, COUNT(*) AS n, datetime(MAX(received_at)/1000, 'unixepoch', '+330 minutes') AS last_received_ist, datetime(MIN(t)/1000, 'unixepoch', '+330 minutes') AS oldest_msg_ist FROM messages GROUP BY event"
+          echo "== last hour, per 10 minutes (IST)"
+          q "SELECT strftime('%H:%M', (received_at/600000)*600, 'unixepoch', '+330 minutes') AS slot, COUNT(*) AS n FROM messages WHERE received_at > (strftime('%s','now')-3600)*1000 GROUP BY slot ORDER BY slot"
+          echo "== chats"
+          q "SELECT kind, COUNT(*) AS n, SUM(name IS NOT NULL) AS named FROM chats GROUP BY kind"
+          echo "== messages: groups vs personal, from me, tagged, calls"
+          q "SELECT COUNT(DISTINCT chat) AS chats_with_msgs, SUM(is_group) AS group_msgs, SUM(1-is_group) AS personal_msgs, SUM(from_me) AS from_me, SUM(tag) AS tagged, SUM(type IN ('call','video call')) AS calls, SUM(IFNULL(sender_name,'')='' AND from_me=0) AS no_sender_name FROM messages"
+          echo "== tasks"
+          q "SELECT source, status, COUNT(*) AS n FROM tasks GROUP BY source, status"
+          echo "== settings present"
+          q "SELECT k FROM settings ORDER BY k"

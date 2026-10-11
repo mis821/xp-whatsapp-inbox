@@ -20,6 +20,16 @@
       var s = typeof w === 'string' ? w : (w._serialized || (w.toString ? w.toString() : ''));
       return String(s).replace(/@c\.us$/, '@s.whatsapp.net');
     }
+    // A LID (…@lid) is not a phone number. WhatsApp's contact record often knows the phone behind
+    // it; without it the dashboard falls back to its own contact list.
+    function phoneOf(w) {
+      try {
+        if (!w || !/@lid$/.test(wid(w))) return '';
+        var c = WPP.whatsapp.ContactStore.get(w);
+        var pn = c && (c.phoneNumber || (c.attributes && c.attributes.phoneNumber));
+        return pn ? wid(pn).split('@')[0].replace(/\D/g, '') : '';
+      } catch (e) { return ''; }
+    }
     function chatName(id) {
       try {
         var c = WPP.chat.get(id);
@@ -43,13 +53,14 @@
       var chat = wid(m.id.remote || (m.id.fromMe ? m.to : m.from));
       if (!chat || /@(broadcast|newsletter)$/.test(chat)) return null;
       var isGroup = /@g\.us$/.test(chat), fromMe = !!m.id.fromMe;
-      var sender = fromMe ? '' : wid(isGroup ? (m.author || m.id.participant) : (m.from || chat));
+      var senderWid = fromMe ? null : (isGroup ? (m.author || m.id.participant) : (m.from || m.id.remote));
+      var sender = wid(senderWid);
       // For media, `body` holds a thumbnail, not words — only the caption / file name is text.
       var text = type === 'chat' ? (m.body || '') : (m.caption || m.filename || '');
       if (type === 'call_log') text = (m.isVideoCall ? 'Video call ' : 'Call ') + (m.callOutcome === 'missed' ? 'missed' : 'aaya');
       return {
         id: m.id.id, t: (m.t || 0) * 1000, chat: chat, chat_name: name || '', from_me: fromMe ? 1 : 0,
-        sender: sender, sender_phone: /@s\.whatsapp\.net$/.test(sender) ? sender.split('@')[0] : '',
+        sender: sender, sender_phone: /@s\.whatsapp\.net$/.test(sender) ? sender.split('@')[0] : phoneOf(senderWid),
         sender_name: fromMe ? '' : (m.notifyName || (m.senderObj && (m.senderObj.name || m.senderObj.pushname)) || ''),
         type: TYPE[type] || type, text: String(text).slice(0, 3000),
         mentions: (m.mentionedJidList || []).map(wid).join(','), reply_to: wid(m.quotedParticipant)

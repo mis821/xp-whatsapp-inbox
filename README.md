@@ -12,6 +12,12 @@ Ye PO tracker se bilkul alag project hai. Isme koi Google Sheet nahi hai: ye Clo
 - **Shaam ka hisaab:** overdue kaam, kal ke kaam, reply baaki, aaj ke calls aur kahan kitne messages aaye.
   Setup mein summary chalu karenge to subah 9:30 aur shaam 7 baje ye summary aapke WhatsApp pe aayegi.
 
+## Tabs
+- **⭐ Zaroori:** sirf woh messages jahan aapko group mein tag kiya, "Neeraj" likha hai, ya payment maangi gayi hai. Ye tab tak rehte hain jab tak "✓ Ho gaya" na dabayein.
+- **📋 Task List:** task system (tools.xpertpack.in) ke daily reminders. Har task ka sirf ek card banta hai.
+- **👑 Owners:** Anant Sir, Hitesh Sir aur Raj Kumar Sir ke saare messages. Inke numbers `src/app.js` ki `OWNERS` list mein hain.
+- **✅ Mere Kaam**, **🌆 Shaam ka hisaab**, **💬 Sab chats**, **⚙️ Setup**.
+
 ## Speed
 Inbox khulte hi sirf list aati hai (har chat ka count aur aakhri message).
 Test mein 30,000 messages aur 266 chats pe ye **125 KB mein ~90 ms** mein load hui.

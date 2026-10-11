@@ -38,10 +38,32 @@ const NEERAJ_RE = /neeraj|niraj|नीरज/i;
 // every dispatch and quality message too.
 const PAYMENT_RE = /\b(payments?|paymnt|paymt|pymt|pymnt|pmt|paiment|payement|pay|paise|paisa|outstanding|advance|neft|rtgs|imps|cheque|chq|ledger)\b|भुगतान|पेमेंट|पैसे/i;
 
-// Reasons a message belongs on the Zaroori list ([] = it does not). Only other people's messages.
+// The company's task system sends daily "'X' was due on 10 Oct. When will you close it?" reminders
+// with a link to the task. Those go to the Task List tab, not Zaroori.
+const TASKSYS_RE = /tools\.xpertpack\.in\/tasks|\bwas due on\b[\s\S]*\bclose it\b/i;
+
+// The company's owners — every message from them gets its own tab. Matched on the last 10 digits.
+export const OWNERS = [
+  { name: 'Anant Sir', phones: ['8447731703'] },
+  { name: 'Hitesh Sir', phones: ['8447731702'] },
+  { name: 'Raj Kumar Sir', phones: ['8383828836', '8447731707'] }
+];
+export function ownerOf(phone) {
+  const d = String(phone || '').replace(/\D/g, '').slice(-10);
+  if (d.length < 10) return '';
+  for (const o of OWNERS) if (o.phones.indexOf(d) !== -1) return o.name;
+  return '';
+}
+
+// Reasons a message is kept for the dashboard ([] = it is not). Only other people's messages.
+//   tasksys  a task-system reminder (Task List tab — and nothing else, even though it names Neeraj)
+//   owner    sent by one of the owners (Owners tab)
+//   tag / neeraj / payment   the Zaroori tab
 export function flagReasons(r) {
   if (r.from_me) return [];
+  if (TASKSYS_RE.test(r.text || '')) return ['tasksys'];
   const out = [];
+  if (ownerOf(r.sender_phone)) out.push('owner');
   if (r.is_group && r.tag) out.push('tag');
   if (NEERAJ_RE.test(r.text || '')) out.push('neeraj');
   if (PAYMENT_RE.test(r.text || '')) out.push('payment');
@@ -269,6 +291,14 @@ export async function ingest(env, rows, waitUntil) {
   let me = { ids: [], nums: [] };
   try { me = meIdsOf(await getMe(env)); } catch (e) { /* storing the message matters more than tagging it */ }
   for (const r of rows) r.tag = isTag(r, me) ? 1 : 0;
+  // A LID sender is not a phone number; the contact list knows which phone it belongs to.
+  const lids = [...new Set(rows.filter(r => !r.from_me && !r.sender_phone && /@lid$/.test(r.sender || '')).map(r => bare(r.sender)))];
+  if (lids.length) {
+    const pns = {};
+    (await env.DB.prepare('SELECT jid, pn FROM contacts WHERE pn IS NOT NULL AND jid IN (SELECT value FROM json_each(?))')
+      .bind(JSON.stringify(lids)).all()).results.forEach(c => { pns[c.jid] = c.pn; });
+    rows.forEach(r => { if (!r.sender_phone && pns[bare(r.sender)]) r.sender_phone = pns[bare(r.sender)]; });
+  }
   const data = JSON.stringify(rows.map(r => { const o = {}; MSG_COLS.forEach(c => { o[c] = r[c] === undefined ? null : r[c]; }); return o; }));
 
   // One row per chat seen in this batch (the "Message yourself" chat is notes, not a conversation).
@@ -430,13 +460,21 @@ async function selfFilter(env) {
 // when it is opened (getChat) — on a busy day the full set would be megabytes on a phone.
 // Messages stored before the Zaroori list existed (or before a rule changed) get checked once.
 // FLAGS_VERSION goes up whenever flagReasons changes, so old messages are re-checked against it.
-const FLAGS_VERSION = '1';
+const FLAGS_VERSION = '2';
 async function backfillFlags(env) {
   if ((await getSetting(env, 'flags_version')) === FLAGS_VERSION) return;
   let me = { ids: [], nums: [] };
   try { me = meIdsOf(await getMe(env)); } catch (e) { /* tags already stored on each row */ }
+  // Owners are recognised by phone; give LID senders theirs from the contact list (fetched now if
+  // this is the first time the list carries phones).
+  const havePn = await env.DB.prepare('SELECT 1 AS x FROM contacts WHERE pn IS NOT NULL LIMIT 1').first();
+  if (!havePn && env.WASENDER_API_KEY) { try { await syncNames(env, true); } catch (e) { /* owners by phone only */ } }
+  await env.DB.prepare(
+    "UPDATE messages SET sender_phone = (SELECT pn FROM contacts WHERE contacts.jid = messages.sender) " +
+    "WHERE IFNULL(sender_phone, '') = '' AND sender LIKE '%@lid' AND EXISTS (SELECT 1 FROM contacts WHERE contacts.jid = messages.sender AND pn IS NOT NULL)"
+  ).run();
   const rows = (await env.DB.prepare(
-    'SELECT id, chat, t, is_group, from_me, tag, text FROM messages WHERE from_me = 0 AND received_at >= ?'
+    'SELECT id, chat, t, is_group, from_me, tag, text, sender_phone FROM messages WHERE from_me = 0 AND received_at >= ?'
   ).bind(Date.now() - KEEP_DAYS * DAY).all()).results;
   const flags = [];
   for (const r of rows) {
@@ -446,8 +484,9 @@ async function backfillFlags(env) {
   }
   for (let i = 0; i < flags.length; i += 2000) {
     await env.DB.prepare(
-      "INSERT OR IGNORE INTO flags (msg_id, chat, t, reasons) SELECT json_extract(value, '$.msg_id'), " +
-      "json_extract(value, '$.chat'), json_extract(value, '$.t'), json_extract(value, '$.reasons') FROM json_each(?)"
+      "INSERT INTO flags (msg_id, chat, t, reasons) SELECT json_extract(value, '$.msg_id'), " +
+      "json_extract(value, '$.chat'), json_extract(value, '$.t'), json_extract(value, '$.reasons') FROM json_each(?) " +
+      'WHERE true ON CONFLICT(msg_id) DO UPDATE SET reasons = excluded.reasons'
     ).bind(JSON.stringify(flags.slice(i, i + 2000))).run();
   }
   await setSetting(env, 'flags_version', FLAGS_VERSION);
@@ -518,7 +557,7 @@ async function getInbox(env, daysArg) {
     now, since, days, me: { name: sf.me.name }, lastArrival: (last && last.r) || 0, captured: 0,
     chats, callsToday, flags: await flagsOut(env, sf.nums, today), tasks: await tasksOut(env), groups,
     teamGroups: JSON.parse((await getSetting(env, 'team_groups')) || '{}'),
-    keywords: KEYWORDS, types: TASK_TYPES, teams: TEAMS
+    keywords: KEYWORDS, types: TASK_TYPES, teams: TEAMS, owners: OWNERS.map(o => o.name)
   };
 }
 
@@ -528,7 +567,7 @@ async function flagsOut(env, nums, today) {
   const r = await env.DB.prepare(
     'SELECT f.msg_id, f.chat, f.t, f.reasons, f.done_at, m.from_me, m.sender, m.sender_phone, m.sender_name, m.type, m.text, ' +
     'c.name AS chat_name FROM flags f JOIN messages m ON m.id = f.msg_id LEFT JOIN chats c ON c.jid = f.chat ' +
-    'WHERE f.done_at IS NULL OR f.done_at >= ? ORDER BY f.t DESC LIMIT 1500').bind(today).all();
+    'WHERE f.done_at IS NULL OR f.done_at >= ? ORDER BY f.t DESC LIMIT 3000').bind(today).all();
   const names = await mentionNames(env, r.results, nums);
   return r.results.map(f => {
     const isGroup = /@g\.us$/.test(f.chat);
@@ -537,6 +576,7 @@ async function flagsOut(env, nums, today) {
       id: f.msg_id, jid: f.chat, chat: f.chat_name || (isGroup ? 'Group …' + f.chat.split('@')[0].slice(-6) : prettyJid(f.chat)),
       group: isGroup, t: f.t, reasons: String(f.reasons).split(' ').filter(Boolean), done: f.done_at || 0,
       who: f.sender_name || (f.sender_phone ? '+' + f.sender_phone : prettyJid(bare(f.sender))),
+      owner: ownerOf(f.sender_phone),
       type: f.type || '', text: text.length > TEXT_MAX ? text.slice(0, TEXT_MAX) + '…' : text
     };
   });
@@ -715,12 +755,14 @@ export async function syncNames(env, withContacts) {
     const list = [];
     contacts.forEach(c => {
       const nm = c && (c.name || c.verifiedName || c.notify);
-      if (nm) [bare(c.id), bare(c.lid)].filter(Boolean).forEach(j => list.push({ jid: j, name: String(nm).slice(0, 100) }));
+      const pn = digits(c.id) || null;
+      if (nm) [bare(c.id), bare(c.lid)].filter(Boolean).forEach(j => list.push({ jid: j, name: String(nm).slice(0, 100), pn }));
     });
     for (let i = 0; i < list.length; i += 1000) {
       await env.DB.prepare(
-        "INSERT INTO contacts (jid, name) SELECT json_extract(value, '$.jid'), json_extract(value, '$.name') FROM json_each(?) " +
-        'WHERE true ON CONFLICT(jid) DO UPDATE SET name = excluded.name').bind(JSON.stringify(list.slice(i, i + 1000))).run();
+        "INSERT INTO contacts (jid, name, pn) SELECT json_extract(value, '$.jid'), json_extract(value, '$.name'), json_extract(value, '$.pn') " +
+        'FROM json_each(?) WHERE true ON CONFLICT(jid) DO UPDATE SET name = excluded.name, pn = COALESCE(excluded.pn, contacts.pn)')
+        .bind(JSON.stringify(list.slice(i, i + 1000))).run();
     }
     await env.DB.prepare(
       "UPDATE chats SET name = (SELECT name FROM contacts WHERE contacts.jid = chats.jid) " +
@@ -733,6 +775,12 @@ export async function syncNames(env, withContacts) {
 // ===================================================================
 // Morning / evening summary to the office number itself
 // ===================================================================
+// The task-system link's id: one reminder card per task, however many days it is repeated.
+export function taskKey(text) {
+  const m = String(text || '').match(/tools\.xpertpack\.in\/tasks\/t\/([A-Za-z0-9_-]+)/i);
+  return m ? m[1] : '';
+}
+
 export function briefText(d, kind) {
   const today = dayKey(d.now), tomorrow = dayKey(d.now + DAY);
   const open = d.tasks.filter(t => t.status === 'Open');
@@ -750,22 +798,29 @@ export function briefText(d, kind) {
     if (items.length > cap) out.push('…aur ' + (items.length - cap));
     return out;
   };
-  const openFlags = (d.flags || []).filter(f => !f.done);
+  const allOpen = (d.flags || []).filter(f => !f.done);
+  const openFlags = allOpen.filter(f => f.reasons.indexOf('tasksys') === -1 && f.reasons.indexOf('owner') === -1 && f.reasons.length);
+  const taskKeys = new Set(allOpen.filter(f => f.reasons.indexOf('tasksys') !== -1).map(f => taskKey(f.text) || f.id));
+  const ownerOpen = allOpen.filter(f => f.reasons.indexOf('owner') !== -1);
   const fcount = k => openFlags.filter(f => f.reasons.indexOf(k) !== -1).length;
   const flagLine = f => '• *' + f.chat + '* — ' + f.who + ': "' + f.text.replace(/\s+/g, ' ').slice(0, 80) + '"';
   const zaroori = openFlags.length
     ? ['', '⭐ *Zaroori baaki: ' + openFlags.length + '* (@tag ' + fcount('tag') + ' · Neeraj ' + fcount('neeraj') + ' · payment ' + fcount('payment') + ')']
         .concat(openFlags.slice(0, 12).map(flagLine), openFlags.length > 12 ? ['…aur ' + (openFlags.length - 12)] : [])
     : [];
+  const extra = [];
+  if (taskKeys.size) extra.push('📋 Task List: ' + taskKeys.size + ' task baaki');
+  if (ownerOpen.length) extra.push('👑 Owners ke messages: ' + ownerOpen.length);
+  const extraLines = extra.length ? [''].concat(extra) : [];
   let L = [];
   if (kind === 'morning') {
     L.push('☀️ *Good morning — aaj ke kaam* (' + dm(today) + ')');
-    L = L.concat(zaroori, section('⏰ *Overdue*', overdue, taskLine, 10), section('📌 *Aaj*', dueToday, taskLine, 15));
+    L = L.concat(extraLines, zaroori, section('⏰ *Overdue*', overdue, taskLine, 10), section('📌 *Aaj*', dueToday, taskLine, 15));
     if (!overdue.length && !dueToday.length && !openFlags.length) L.push('', 'Sab clear hai ✅');
   } else {
     L.push('🌆 *Aaj ka hisaab* — ' + dm(today));
     L.push('✅ Aaj poore hue: ' + doneToday.length + '   📝 Khule kaam: ' + open.length);
-    L = L.concat(zaroori, section('⏰ *Overdue*', overdue, taskLine, 10), section('📌 *Aaj ke baaki*', dueToday, taskLine, 10),
+    L = L.concat(extraLines, zaroori, section('⏰ *Overdue*', overdue, taskLine, 10), section('📌 *Aaj ke baaki*', dueToday, taskLine, 10),
       section('🗓️ *Kal ke liye*', dueTomorrow, taskLine, 10));
   }
   return L.join('\n');

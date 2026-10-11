@@ -52,7 +52,11 @@
   .stats-line .s { cursor: pointer; }
   .stats-line .s b { margin-left: 4px; }
   .s-tag { color: var(--amber); } .s-neeraj { color: var(--purple); } .s-pay { color: var(--green); }
-  .s-over { color: var(--red); } .s-today { color: var(--brand); }
+  .s-over { color: var(--red); } .s-today { color: var(--brand); } .s-task { color: var(--teal); } .s-owner { color: #b45309; }
+  .pcard.r-tasksys { border-left-color: var(--teal); } .pcard.r-owner { border-left-color: #b45309; }
+  .badge-pill.r-tasksys { background: var(--teal); } .badge-pill.r-owner { background: #b45309; }
+  .chip.c-owner { color: #b45309; } .chip.c-owner.active { background: #b45309; border-color: #b45309; color: #fff; }
+  a.bigbtn { display: block; text-align: center; text-decoration: none; box-sizing: border-box; }
   .topbar .total { font-weight: 700; }
 
   .toolbar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
@@ -228,6 +232,8 @@
 <body>
   <nav class="tabbar views">
     <button class="tab active" data-view="zaroori">⭐ Zaroori <span class="badge" id="b-zar"></span></button>
+    <button class="tab" data-view="tasks">📋 Task List <span class="badge" id="b-tasks"></span></button>
+    <button class="tab" data-view="owners">👑 Owners <span class="badge" id="b-owners"></span></button>
     <button class="tab" data-view="kaam">✅ Mere Kaam <span class="badge" id="b-kaam"></span></button>
     <button class="tab" data-view="review">🌆 Shaam ka hisaab</button>
     <button class="tab" data-view="inbox">💬 Sab chats</button>
@@ -259,6 +265,26 @@
     <div class="chips" id="zchips"></div>
     <div class="count" id="zcount"></div>
     <div id="zlist"><div class="empty">Load ho raha hai…</div></div>
+  </section>
+
+  <!-- ============ TASK LIST (company task system reminders) ============ -->
+  <section id="v-tasks" hidden>
+    <p class="viewnote">Task system ke reminders ("…was due on… When will you close it?"). Ek task ke kitne bhi reminder aayein,
+      yahan <b>ek hi card</b> dikhega. <b>✓ Ho gaya</b> dabane ke baad agar kal phir reminder aaya to card wapas aa jayega — matlab system mein abhi bhi khula hai.</p>
+    <div class="toolbar"><input type="search" id="tq" placeholder="Task dhundho…"></div>
+    <div class="chips" id="tchips"></div>
+    <div class="count" id="tcount"></div>
+    <div id="tlist"></div>
+  </section>
+
+  <!-- ============ OWNERS ============ -->
+  <section id="v-owners" hidden>
+    <p class="viewnote">Anant Sir, Hitesh Sir aur Raj Kumar Sir ke saare messages — kisi bhi group ya personal chat se.
+      <b>✓ Ho gaya</b> dabane tak yahin rahenge.</p>
+    <div class="toolbar"><input type="search" id="oq" placeholder="Group ya message dhundho…"></div>
+    <div class="chips" id="ochips"></div>
+    <div class="count" id="ocount"></div>
+    <div id="olist"></div>
   </section>
 
   <section id="v-inbox" hidden>
@@ -454,6 +480,8 @@
     renderBanner();
     renderTiles();
     renderZaroori();
+    renderTaskList();
+    renderOwners();
     renderInbox();
     renderKaam();
     renderReview();
@@ -477,8 +505,10 @@
   function counts() {
     var c = { pend: 0, unseen: 0, unseenChats: 0, calls: (D.callsToday || []).length, over: 0, today: 0,
               fopen: 0, ftag: 0, fneeraj: 0, fpay: 0 };
+    c.tasks = openTaskGroups().length;
+    c.owners = (D.flags || []).filter(function (f) { return !f.done && isOwnerFlag(f); }).length;
     (D.flags || []).forEach(function (f) {
-      if (f.done) return;
+      if (f.done || !isZaroori(f)) return;
       c.fopen++;
       if (f.reasons.indexOf('tag') !== -1) c.ftag++;
       if (f.reasons.indexOf('neeraj') !== -1) c.fneeraj++;
@@ -506,9 +536,13 @@
         '<span class="s s-pay" data-act="zf" data-f="payment">Payment:<b>' + c.fpay + '</b></span>' +
         '<span class="s s-over" data-act="view" data-v="kaam">Overdue kaam:<b>' + c.over + '</b></span>' +
         '<span class="s s-today" data-act="view" data-v="kaam">Aaj ke kaam:<b>' + c.today + '</b></span>' +
+        '<span class="s s-task" data-act="view" data-v="tasks">Task list:<b>' + c.tasks + '</b></span>' +
+        '<span class="s s-owner" data-act="view" data-v="owners">Owners:<b>' + c.owners + '</b></span>' +
       '</div><div class="total">Zaroori baaki: <b>' + c.fopen + '</b></div>';
     $('b-kaam').textContent = (c.over + c.today) || '';
     $('b-zar').textContent = c.fopen || '';
+    $('b-tasks').textContent = c.tasks || '';
+    $('b-owners').textContent = c.owners || '';
   }
 
   // ---------- ZAROORI ----------
@@ -518,8 +552,14 @@
   function zHl(text) {
     return hl(text).replace(/(neeraj|नीरज)/gi, '<mark>$1</mark>');
   }
+  function isTaskFlag(f) { return f.reasons.indexOf('tasksys') !== -1; }
+  function isOwnerFlag(f) { return f.reasons.indexOf('owner') !== -1 && !isTaskFlag(f); }
+  function isZaroori(f) {
+    return !isTaskFlag(f) && !isOwnerFlag(f) &&
+      (f.reasons.indexOf('tag') !== -1 || f.reasons.indexOf('neeraj') !== -1 || f.reasons.indexOf('payment') !== -1);
+  }
   function renderZaroori() {
-    var flags = D.flags || [];
+    var flags = (D.flags || []).filter(isZaroori);
     var open = flags.filter(function (f) { return !f.done; });
     var count = function (k) { return open.filter(function (f) { return f.reasons.indexOf(k) !== -1; }).length; };
     var doneToday = flags.filter(function (f) { return f.done; }).length;
@@ -546,9 +586,14 @@
     }
     var perChat = {};
     flags.forEach(function (f) { if (!f.done) perChat[f.jid] = (perChat[f.jid] || 0) + 1; });
-    var LABEL = { tag: '@ Aapko tag', neeraj: '👤 Neeraj', payment: '💰 Payment' };
-    $('zlist').innerHTML = '<div class="grid">' + list.map(function (f) {
-      var lead = f.reasons.indexOf('tag') !== -1 ? 'tag' : f.reasons[0];
+    $('zlist').innerHTML = '<div class="grid">' + list.map(function (f) { return flagCard(f, perChat); }).join('') + '</div>';
+  }
+
+  // One message card — Zaroori and Owners share it.
+  function flagCard(f, perChat) {
+    var LABEL = { tag: '@ Aapko tag', neeraj: '👤 Neeraj', payment: '💰 Payment', owner: '👑 ' + (f.owner || 'Owner') };
+    {
+      var lead = f.reasons.indexOf('owner') !== -1 ? 'owner' : f.reasons.indexOf('tag') !== -1 ? 'tag' : f.reasons[0];
       var more = (perChat[f.jid] || 0) - (f.done ? 0 : 1);
       return '<div class="pcard r-' + lead + (f.done ? ' is-done' : '') + '">' +
         '<div class="card-top"><span class="supplier" title="' + esc(f.chat) + '">' + esc(f.chat) + '</span>' +
@@ -564,12 +609,100 @@
                   : '<button class="bigbtn done" data-act="flag-done" data-id="' + esc(f.id) + '">✓ Ho gaya</button>' +
                     '<button class="bigbtn kaam" data-act="kaam-flag" data-id="' + esc(f.id) + '">+ Kaam banao</button>') +
         '</div></div>';
+    }
+  }
+
+  // ---------- TASK LIST ----------
+  var TQ = '', TF = 'open';
+  function taskKeyOf(f) {
+    var m = String(f.text || '').match(/tools\.xpertpack\.in\/tasks\/t\/([A-Za-z0-9_-]+)/i);
+    return m ? m[1] : f.id;
+  }
+  // "Neeraj, 'Debit note to Shakti Gum' was due on 10 Oct. When will you close it? … (Hitesh's task) … https://…"
+  function parseReminder(text) {
+    var t = String(text || '');
+    var title = (t.match(/'([^']+)'/) || t.match(/"([^"]+)"/) || [])[1] || t.replace(/https?:\S+/g, '').slice(0, 120);
+    var due = (t.match(/due on ([0-9]{1,2} [A-Za-z]{3,9}(?: [0-9]{4})?)/i) || [])[1] || '';
+    var whose = (t.match(/\(([^()]+?)'s task\)/i) || [])[1] || '';
+    var url = (t.match(/https?:\/\/tools\.xpertpack\.in\/tasks\/\S+/i) || [])[0] || '';
+    return { title: title, due: due, whose: whose, url: url.replace(/[).,]+$/, '') };
+  }
+  // All reminders of one task, newest first; the task is open while any of them is.
+  function taskGroups() {
+    var by = {}, order = [];
+    (D.flags || []).filter(isTaskFlag).forEach(function (f) {
+      var k = taskKeyOf(f);
+      if (!by[k]) { by[k] = []; order.push(k); }
+      by[k].push(f);
+    });
+    return order.map(function (k) {
+      var items = by[k];
+      var open = items.filter(function (f) { return !f.done; });
+      var latest = items[0];
+      return { key: k, items: items, open: open, latest: latest, info: parseReminder(latest.text) };
+    });
+  }
+  function openTaskGroups() { return D && D.flags ? taskGroups().filter(function (g) { return g.open.length; }) : []; }
+  function renderTaskList() {
+    var groups = taskGroups();
+    var open = groups.filter(function (g) { return g.open.length; });
+    var done = groups.filter(function (g) { return !g.open.length; });
+    $('tchips').innerHTML = [['open', 'Baaki', open.length], ['done', '✓ Aaj ho gaye', done.length]].map(function (ch) {
+      return '<button class="chip' + (TF === ch[0] ? ' active' : '') + '" data-act="tf" data-f="' + ch[0] + '">' + esc(ch[1]) + '<span class="c">' + ch[2] + '</span></button>';
+    }).join('');
+    var q = TQ.toLowerCase();
+    var list = (TF === 'done' ? done : open).filter(function (g) {
+      return !q || (g.info.title + ' ' + g.info.whose + ' ' + g.latest.chat).toLowerCase().indexOf(q) !== -1;
+    });
+    $('tcount').textContent = list.length + ' task';
+    if (!list.length) {
+      $('tlist').innerHTML = '<div class="empty">' + (TF === 'done' ? 'Aaj abhi koi task tick nahi kiya.' : 'Koi task reminder baaki nahi 🎉') + '</div>';
+      return;
+    }
+    $('tlist').innerHTML = '<div class="grid">' + list.map(function (g) {
+      var i = g.info, isDone = !g.open.length, n = g.items.length;
+      return '<div class="pcard r-tasksys' + (isDone ? ' is-done' : '') + '">' +
+        '<div class="card-top"><span class="supplier">' + esc(i.whose ? i.whose + ' ka task' : 'Task system') + '</span>' +
+          '<span class="po-date">' + fmtTime(g.latest.t) + '</span></div>' +
+        '<div class="po-number">' + esc(i.title) + '</div>' +
+        (i.due ? '<div class="meta">Due tha: <b>' + esc(i.due) + '</b></div>' : '') +
+        '<div class="meta">Reminder: <b>' + n + ' baar</b> · ' + esc(g.latest.chat) + '</div>' +
+        '<div class="pills"><span class="badge-pill r-tasksys">📋 Task system</span>' +
+          (n > 1 ? '<span class="badge-pill r-over">' + n + ' reminder</span>' : '') + '</div>' +
+        '<div class="card-actions">' +
+          (i.url ? '<a class="bigbtn kaam" target="_blank" rel="noopener" href="' + esc(i.url) + '">🔗 Task kholo</a>' : '') +
+          (isDone ? '<button class="bigbtn grey" data-act="task-key-undo" data-k="' + esc(g.key) + '">↩ Wapas laao</button>'
+                  : '<button class="bigbtn done" data-act="task-key-done" data-k="' + esc(g.key) + '">✓ Ho gaya</button>') +
+        '</div></div>';
     }).join('') + '</div>';
+  }
+
+  // ---------- OWNERS ----------
+  var OQ = '', OF = 'all';
+  function renderOwners() {
+    var flags = (D.flags || []).filter(isOwnerFlag);
+    var open = flags.filter(function (f) { return !f.done; });
+    var chips = [['all', 'Sab', open.length]].concat((D.owners || []).map(function (o) {
+      return [o, '👑 ' + o, open.filter(function (f) { return f.owner === o; }).length];
+    })).concat([['done', '✓ Aaj ho gaye', flags.length - open.length]]);
+    $('ochips').innerHTML = chips.map(function (ch) {
+      return '<button class="chip' + (ch[0] !== 'all' && ch[0] !== 'done' ? ' c-owner' : '') + (OF === ch[0] ? ' active' : '') +
+             '" data-act="of" data-f="' + esc(ch[0]) + '">' + esc(ch[1]) + '<span class="c">' + ch[2] + '</span></button>';
+    }).join('');
+    var q = OQ.toLowerCase();
+    var list = flags.filter(function (f) {
+      if (OF === 'done' ? !f.done : f.done) return false;
+      if (OF !== 'all' && OF !== 'done' && f.owner !== OF) return false;
+      return !q || (f.chat + ' ' + f.text).toLowerCase().indexOf(q) !== -1;
+    });
+    $('ocount').textContent = list.length + ' dikh rahe';
+    $('olist').innerHTML = list.length ? '<div class="grid">' + list.map(function (f) { return flagCard(f, {}); }).join('') + '</div>'
+      : '<div class="empty">' + (OF === 'done' ? 'Aaj abhi kuch tick nahi kiya.' : 'Owners ka koi message baaki nahi.') + '</div>';
   }
   function markFlags(ids, done) {
     var now = Date.now();
     ids.forEach(function (id) { var f = flagBy(id); if (f) f.done = done ? now : 0; });
-    renderTiles(); renderZaroori(); renderReview();
+    renderTiles(); renderZaroori(); renderTaskList(); renderOwners(); renderReview();
     call('markWaFlags', [ids, done], function () { toast(done ? '✓ Ho gaya' : 'Wapas list mein'); });
   }
   function kaamFromFlag(id) {
@@ -985,7 +1118,16 @@
       '</div><p class="hint">Kal ke liye kuch khiskaana hai to ⏭ dabaiye; jo ho gaya use ✓ kar dijiye.</p>' +
       '<button class="btn pri" data-act="brief">📲 Ye hisaab mujhe WhatsApp pe bhejo</button></div>';
 
-    var zOpen = (D.flags || []).filter(function (f) { return !f.done; });
+    var zOpen = (D.flags || []).filter(function (f) { return !f.done && isZaroori(f); });
+    var tOpen = openTaskGroups().length;
+    var oOpen = (D.flags || []).filter(function (f) { return !f.done && isOwnerFlag(f); }).length;
+    if (tOpen || oOpen) {
+      h += '<div class="card"><div class="stats">' +
+        '<div class="stat"><b style="color:var(--teal)">' + tOpen + '</b><span>📋 Task list baaki</span></div>' +
+        '<div class="stat"><b style="color:#b45309">' + oOpen + '</b><span>👑 Owners ke messages</span></div></div>' +
+        '<p class="hint"><button class="btn sm" data-act="view" data-v="tasks">📋 Task List</button> ' +
+        '<button class="btn sm" data-act="view" data-v="owners">👑 Owners</button></p></div>';
+    }
     if (zOpen.length) {
       var zc = function (k) { return zOpen.filter(function (f) { return f.reasons.indexOf(k) !== -1; }).length; };
       h += '<div class="sec">⭐ Zaroori — abhi baaki (' + zOpen.length + ')</div><div class="card">' +
@@ -1093,7 +1235,7 @@
     VIEW = v;
     store('view', v);
     document.querySelectorAll('nav.views .tab').forEach(function (b) { b.classList.toggle('active', b.dataset.view === v); });
-    ['zaroori', 'inbox', 'kaam', 'review', 'setup'].forEach(function (k) { $('v-' + k).hidden = k !== v; });
+    ['zaroori', 'tasks', 'owners', 'inbox', 'kaam', 'review', 'setup'].forEach(function (k) { $('v-' + k).hidden = k !== v; });
     if (v === 'setup') loadSetup();
   }
   function setFilter(f) {
@@ -1126,6 +1268,14 @@
     else if (a === 'cat') changeCategory(jid);
     else if (a === 'zf') { ZF = el.dataset.f; setView('zaroori'); renderZaroori(); }
     else if (a === 'flag-done') markFlags([id], true);
+    else if (a === 'tf') { TF = el.dataset.f; renderTaskList(); }
+    else if (a === 'of') { OF = el.dataset.f; renderOwners(); }
+    else if (a === 'task-key-done' || a === 'task-key-undo') {
+      var key = el.dataset.k, done = a === 'task-key-done';
+      var ids = (D.flags || []).filter(function (f) { return isTaskFlag(f) && taskKeyOf(f) === key && (done ? !f.done : f.done); })
+        .map(function (f) { return f.id; });
+      markFlags(ids, done);
+    }
     else if (a === 'task-done') setTask(id, { status: 'Done' }, '✅ Ho gaya');
     else if (a === 'task-undo') setTask(id, { status: 'Open' }, 'Wapas khula');
     else if (a === 'flag-undo') markFlags([id], false);
@@ -1181,6 +1331,8 @@
   // Names and preview lines filter at once; message text is searched on the server, debounced.
   var searchTimer = null;
   $('zq').addEventListener('input', function () { ZQ = this.value.trim(); if (D) renderZaroori(); });
+  $('tq').addEventListener('input', function () { TQ = this.value.trim(); if (D) renderTaskList(); });
+  $('oq').addEventListener('input', function () { OQ = this.value.trim(); if (D) renderOwners(); });
   $('q').addEventListener('input', function () {
     Q = this.value.trim(); HITS = null;
     if (D) renderInbox();

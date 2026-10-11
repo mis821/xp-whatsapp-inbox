@@ -47,6 +47,14 @@ await msg('G8@g.us', '918888800009', 45, 'Reel ka payment pending hai 45 din se'
 await msg('G9@g.us', '703', 20, 'Aaj ki payment list final kar di hai');
 await msg('G4@g.us', '704', 35, 'Neeraj sir ko bol dijiye rate list approve karni hai');
 await msg('G6@g.us', '705', 25, 'Sir pichle 2 bill ka pymt kara dijiye please');
+for (const [mins, id, title, due, whose] of [[300, 'k0tIhWwvjSbeNvSP', 'Debit note to Shakti Gum', '10 Oct', ''], [12, 'k0tIhWwvjSbeNvSP', 'Debit note to Shakti Gum', '10 Oct', ''],
+    [290, 'LYTXbnT8Oppmf_LR', 'Generator in chennai', '9 Oct', ''], [280, 'PnKtfLEALPtaYYiA', 'need suppliers names in the...', '5 Oct', "Hitesh's task"]]) {
+  await msg('918447731703@s.whatsapp.net', 'x', mins, "Neeraj, '" + title + "' was due on " + due + '. When will you close it?' + (whose ? ' (' + whose + ')' : '') +
+    ' If the date has moved, change it here: https://tools.xpertpack.in/tasks/t/' + id);
+}
+await call('/webhook?token=' + tok, { method: 'POST', body: JSON.stringify({ event: 'xp.rows', data: { rows: [
+  { id: 'OW1', t: Date.now() - 40 * 60000, chat: 'G5@g.us', sender: '918447731702@s.whatsapp.net', sender_phone: '918447731702', sender_name: 'Hitesh Sir', text: 'Purchase team kal 10 baje meeting mein aaye' },
+  { id: 'OW2', t: Date.now() - 20 * 60000, chat: '918383828836@s.whatsapp.net', sender: '918383828836@s.whatsapp.net', sender_phone: '918383828836', sender_name: 'Raj Kumar Sir', text: 'Neeraj, Chennai plant ka PO status bhejo' }] } }) });
 await msg('917777700000@s.whatsapp.net', 'x', 15, 'Sir call kijiye urgent');
 await call('/webhook?token=' + tok, { method: 'POST', body: JSON.stringify({ event: 'call', data: { call: { id: 'C9', from: '917777700000@s.whatsapp.net', date: new Date(Date.now() - 14 * 60000).toISOString(), status: 'offer' } } }) });
 await msg(ME_LID + '@lid', 'me', 120, '#kaam Jyoti Timbers: payment kal ho jayega');

@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { makeD1 } from './d1.mjs';
-import { makeWorker, dayKey, parseKaam, shortParty, briefText, flagReasons } from '../src/app.js';
+import { makeWorker, dayKey, parseKaam, shortParty, briefText, flagReasons, ownerOf, taskKey } from '../src/app.js';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const ME_PN = '919999900000', ME_LID = '123450000000001';
@@ -223,6 +223,30 @@ env.DB.raw.prepare("UPDATE messages SET received_at = ? WHERE id IN ('Z2', 'Z3')
 await worker.scheduled({ cron: '0 21 * * *' }, env, ctx);
 assert.ok(env.DB.raw.prepare("SELECT 1 FROM messages WHERE id = 'Z2'").get(), 'open flag kept');
 assert.ok(!env.DB.raw.prepare("SELECT 1 FROM messages WHERE id = 'Z3'").get(), 'plain old message pruned');
+
+// Task-system reminders → Task List only; owners → Owners tab.
+const REM = "Neeraj, 'Debit note to Shakti Gum' was due on 10 Oct. When will you close it? If the date has moved, change it here: https://tools.xpertpack.in/tasks/t/k0tIhWwvjSbeNvSP";
+assert.deepEqual(flagReasons({ is_group: 0, tag: 1, text: REM, sender_phone: '918447731703' }), ['tasksys'], 'reminder is a task, not Neeraj/owner');
+assert.equal(taskKey(REM), 'k0tIhWwvjSbeNvSP');
+assert.equal(ownerOf('+91 84477 31702'), 'Hitesh Sir');
+assert.equal(ownerOf('918447731707'), 'Raj Kumar Sir');
+assert.equal(ownerOf('919999900000'), '');
+assert.deepEqual(flagReasons({ is_group: 1, tag: 0, text: 'kal meeting hai', sender_phone: '918383828836' }), ['owner']);
+// an owner in a LID group: phone found through the contact list
+env.DB.raw.prepare("INSERT INTO contacts (jid, name, pn) VALUES ('999@lid', 'Anant Sir', '918447731703')").run();
+await post({ event: 'xp.rows', data: { rows: [
+  { id: 'O1', t: now - 5000, chat: 'G3@g.us', sender: '999@lid', text: 'Store ka stock check karo' },
+  { id: 'R1', t: now - 90000, chat: '918447731703@s.whatsapp.net', sender: '918447731703@s.whatsapp.net', sender_phone: '918447731703', text: REM },
+  { id: 'R2', t: now - 4000, chat: '918447731703@s.whatsapp.net', sender: '918447731703@s.whatsapp.net', sender_phone: '918447731703', text: REM }] } });
+d = await rpc('getWaInbox', 2);
+assert.deepEqual(zf('O1').reasons, ['owner']); assert.equal(zf('O1').owner, 'Anant Sir');
+assert.deepEqual(zf('R1').reasons, ['tasksys']); assert.deepEqual(zf('R2').reasons, ['tasksys']);
+assert.match(briefText(d, 'evening'), /Task List: 1 task baaki/);
+// rules changed after messages were stored: the version bump re-checks them (old flags get new reasons)
+env.DB.raw.prepare("UPDATE flags SET reasons = 'neeraj' WHERE msg_id = 'R1'").run();
+env.DB.raw.prepare("DELETE FROM settings WHERE k = 'flags_version'").run();
+d = await rpc('getWaInbox', 2);
+assert.deepEqual(zf('R1').reasons, ['tasksys'], 're-checked');
 
 // speed: 30k messages over 260 chats, then one inbox load
 const ins = env.DB.raw.prepare('INSERT INTO messages (id, received_at, t, event, chat, is_group, from_me, sender, sender_name, type, text, tag) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');

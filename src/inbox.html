@@ -5,70 +5,110 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>WhatsApp Inbox</title>
 <style>
+  /* Same visual language as the PO Tracker web app: light grey page, white underline tab bar with
+     navy count badges, a coloured stats line over a blue rule, and a grid of white cards with a
+     coloured left edge and big full-width buttons. */
   :root {
     --bg: #f4f5f7; --card: #fff; --ink: #1a1a1a; --sub: #6b7280; --line: #e3e5e9; --soft: #f1f3f5;
     --brand: #1e3a8a; --blue: #2563eb; --amber: #d97706; --red: #dc2626; --green: #16a34a; --slate: #475569;
+    --purple: #7c3aed; --teal: #0d9488;
     --tag-bg: #fffbeb; --tag-line: #f59e0b; --new-bg: #eff6ff; --me-bg: #f0fdf4; --mark: #fde68a;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #111214; --card: #1b1c1f; --ink: #e8e8ea; --sub: #9ca3af; --line: #2d2f34; --soft: #24262a;
-      --brand: #3b5bdb; --tag-bg: #2a2210; --tag-line: #d97706; --new-bg: #14213a; --me-bg: #10241a; --mark: #6b5310;
-    }
   }
   * { box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; margin: 0;
          background: var(--bg); color: var(--ink); font-size: 14px; }
   button, input, select, textarea { font: inherit; color: inherit; }
-  .wrap { max-width: 980px; margin: 0 auto; padding: 12px 16px 60px; }
+  .wrap { padding: 14px; }
 
-  header.top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 4px 0 12px; }
-  header.top h1 { font-size: 18px; margin: 0; }
-  header.top .who { font-size: 12px; color: var(--sub); font-weight: 600; }
-  header.top .sp { flex: 1; }
-  header.top .upd { font-size: 12px; color: var(--sub); }
-  .btn { padding: 8px 12px; border: 1px solid var(--line); background: var(--card); border-radius: 8px; cursor: pointer;
+  .btn { padding: 8px 12px; border: 1px solid #d0d3d9; background: var(--card); border-radius: 8px; cursor: pointer;
          font-size: 13px; font-weight: 600; white-space: nowrap; }
-  .btn:hover { border-color: #c7cbd1; }
+  .btn:hover { border-color: #b8bcc4; }
   .btn.pri { background: var(--brand); border-color: var(--brand); color: #fff; }
   .btn.sm { padding: 5px 9px; font-size: 12px; }
   .btn:disabled { opacity: .55; cursor: progress; }
-  select.days { padding: 7px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
+  select.days { padding: 7px 8px; border: 1px solid #d0d3d9; border-radius: 8px; background: var(--card); }
 
   .banner { border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; font-size: 13px; line-height: 1.45; }
   .banner.red { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
   .banner.amber { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
-  @media (prefers-color-scheme: dark) {
-    .banner.red { background: #2a1414; color: #fca5a5; border-color: #5b2121; }
-    .banner.amber { background: #2a2210; color: #fcd34d; border-color: #5b4a12; }
-  }
 
-  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-bottom: 12px; }
-  .tile { border-radius: 10px; padding: 10px 12px; color: #fff; cursor: pointer; border: 0; text-align: left; }
-  .tile .n { font-size: 24px; font-weight: 800; display: block; line-height: 1.1; }
-  .tile .l { font-size: 12px; font-weight: 700; opacity: .95; }
-  .tile .s { font-size: 11px; opacity: .85; display: block; }
-  .t-pend { background: var(--amber); } .t-new { background: var(--blue); } .t-over { background: var(--red); }
-  .t-today { background: var(--brand); } .t-call { background: var(--slate); }
-  @media (max-width: 520px) {
-    .tiles { grid-template-columns: repeat(3, 1fr); gap: 6px; }
-    .tile { padding: 8px 9px; } .tile .n { font-size: 20px; } .tile .l { font-size: 11px; } .tile .s { display: none; }
-  }
+  /* Tab bar — identical to the tracker's */
+  .tabbar { display: flex; gap: 26px; align-items: center; background: #fff; padding: 14px 18px 0;
+            border-bottom: 1px solid var(--line); overflow-x: auto; }
+  .tabbar .tab { background: none; border: none; cursor: pointer; padding: 0 0 12px; font-size: 14px; font-weight: 700;
+                 color: var(--sub); display: flex; align-items: center; gap: 6px; white-space: nowrap; border-bottom: 3px solid transparent; }
+  .tabbar .tab.active { color: var(--ink); border-bottom-color: var(--brand); }
+  .tabbar .tab .badge { background: var(--brand); color: #fff; font-size: 11px; font-weight: 700; padding: 1px 7px;
+                        border-radius: 999px; min-width: 18px; text-align: center; margin: 0; }
+  .tabbar .tab .badge:empty { display: none; }
+  .tabbar .right { margin-left: auto; display: flex; gap: 8px; align-items: center; padding-bottom: 10px; white-space: nowrap; }
+  .tabbar .who { font-size: 12px; color: var(--sub); font-weight: 700; }
+  .tabbar .upd { font-size: 11px; color: #9ca3af; }
 
-  nav.views { display: flex; gap: 6px; margin-bottom: 12px; border-bottom: 1px solid var(--line); overflow-x: auto; }
-  nav.views button { background: none; border: 0; border-bottom: 3px solid transparent; padding: 8px 10px 10px; cursor: pointer;
-                     font-weight: 700; color: var(--sub); white-space: nowrap; }
-  nav.views button.active { color: var(--ink); border-bottom-color: var(--brand); }
+  /* Stats line over the blue rule */
+  .topbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;
+            padding-bottom: 10px; border-bottom: 3px solid var(--blue); margin-bottom: 14px; }
+  .stats-line { display: flex; gap: 18px; flex-wrap: wrap; font-size: 15px; font-weight: 700; }
+  .stats-line .s { cursor: pointer; }
+  .stats-line .s b { margin-left: 4px; }
+  .s-tag { color: var(--amber); } .s-neeraj { color: var(--purple); } .s-pay { color: var(--green); }
+  .s-over { color: var(--red); } .s-today { color: var(--brand); }
+  .topbar .total { font-weight: 700; }
+
+  .toolbar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+  .toolbar input[type=search], .toolbar input[type=text] { flex: 1; min-width: 180px; padding: 10px; border: 1px solid #d0d3d9;
+                                                            border-radius: 8px; font-size: 14px; background: #fff; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .chip { padding: 8px 14px; border-radius: 999px; border: 1px solid #d0d3d9; background: #fff; font-size: 12px; font-weight: 700;
+          cursor: pointer; white-space: nowrap; color: var(--sub); }
+  .chip .c { opacity: .8; font-weight: 600; margin-left: 4px; }
+  .chip.active { background: var(--brand); border-color: var(--brand); color: #fff; }
+  .chip.c-tag { color: var(--amber); } .chip.c-neeraj { color: var(--purple); } .chip.c-pay { color: var(--green); }
+  .chip.c-tag.active { background: var(--amber); border-color: var(--amber); color: #fff; }
+  .chip.c-neeraj.active { background: var(--purple); border-color: var(--purple); color: #fff; }
+  .chip.c-pay.active { background: var(--green); border-color: var(--green); color: #fff; }
+  .chip.c-clear { color: #ef4444; }
+  .count { font-size: 13px; color: #666; margin-bottom: 10px; }
+
+  /* Card grid — the tracker's PO cards */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+  .pcard { background: #fff; border: 1px solid var(--line); border-left: 5px solid #94a3b8; border-radius: 10px; padding: 12px 14px;
+           display: flex; flex-direction: column; }
+  .pcard.r-tag { border-left-color: var(--amber); } .pcard.r-neeraj { border-left-color: var(--purple); }
+  .pcard.r-payment { border-left-color: var(--green); }
+  .pcard.k-over { border-left-color: var(--red); } .pcard.k-today { border-left-color: var(--amber); }
+  .pcard.k-soon { border-left-color: var(--blue); } .pcard.k-done { border-left-color: var(--green); opacity: .7; }
+  .pcard.is-done { opacity: .6; }
+  .card-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+  .supplier { font-weight: 700; font-size: 12px; text-transform: uppercase; color: #333; overflow: hidden; text-overflow: ellipsis; }
+  .po-date { font-size: 11px; color: #888; white-space: nowrap; }
+  .po-number { font-weight: 700; font-size: 15px; margin-bottom: 6px; word-break: break-word; }
+  .msgtext { font-size: 14px; line-height: 1.5; color: #222; margin: 2px 0 6px; word-break: break-word; }
+  .pcard.is-done .msgtext { text-decoration: line-through; }
+  .meta { font-size: 12px; color: #666; margin-top: 2px; }
+  .meta b { color: #333; }
+  .pills { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .badge-pill { display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; color: #fff; background: var(--slate); }
+  .badge-pill.r-tag { background: var(--amber); } .badge-pill.r-neeraj { background: var(--purple); }
+  .badge-pill.r-payment { background: var(--green); } .badge-pill.r-over { background: var(--red); }
+  .badge-pill.r-soft { background: #e5e7eb; color: #374151; }
+  .card-actions { margin-top: auto; padding-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .bigbtn { width: 100%; padding: 11px; border: none; border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer;
+            min-height: 42px; color: #fff; background: var(--blue); }
+  .bigbtn.done { background: var(--green); } .bigbtn.done:hover { background: #15803d; }
+  .bigbtn.kaam { background: var(--blue); } .bigbtn.kaam:hover { background: #1d4ed8; }
+  .bigbtn.grey { background: #9ca3af; }
+  .bigbtn.teal { background: var(--teal); }
+  .btnrow { display: flex; gap: 8px; }
+  .btnrow .bigbtn { flex: 1; min-height: 38px; padding: 8px; font-size: 13px; }
+  .sec { margin: 16px 0 8px; font-size: 14px; font-weight: 800; display: flex; gap: 6px; align-items: center; }
+  .sec.red { color: var(--red); }
+
   .badge { background: var(--red); color: #fff; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; margin-left: 4px; }
   .badge:empty { display: none; }
 
-  .toolbar { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
-  .toolbar input[type=search] { flex: 1; min-width: 160px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
-  .chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 8px; }
-  .chip { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); font-size: 12px;
-          font-weight: 700; cursor: pointer; white-space: nowrap; color: var(--sub); }
-  .chip.active { background: var(--brand); border-color: var(--brand); color: #fff; }
-  .chip .c { opacity: .8; font-weight: 600; margin-left: 3px; }
+
+
 
   .pbox { background: var(--tag-bg); border: 1px solid var(--tag-line); border-radius: 12px; padding: 10px 12px; margin-bottom: 12px; }
   .pbox h3 { margin: 0 0 6px; font-size: 14px; }
@@ -126,8 +166,7 @@
   .hint { font-size: 12px; color: var(--sub); line-height: 1.5; margin: 8px 0 0; }
   .hint code { background: var(--soft); padding: 1px 5px; border-radius: 4px; }
 
-  .sec { margin: 14px 0 6px; font-size: 13px; font-weight: 800; display: flex; gap: 6px; align-items: center; }
-  .sec.red { color: var(--red); }
+
   .task { display: flex; gap: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; margin-bottom: 6px; }
   .task.over { border-left: 4px solid var(--red); }
   .task.done { opacity: .6; }
@@ -187,31 +226,27 @@
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header class="top">
-    <h1>📥 WhatsApp Inbox</h1>
-    <span class="who" id="who"></span>
-    <span class="sp"></span>
-    <span class="upd" id="upd"></span>
-    <select class="days" id="days" title="Kitne din ke messages">
-      <option value="1">Aaj</option>
-      <option value="2">Aaj + kal</option>
-      <option value="3">3 din</option>
-      <option value="7">7 din</option>
-    </select>
-    <button class="btn" id="reload">⟳ Refresh</button>
-  </header>
-
-  <div id="banner"></div>
-  <div class="tiles" id="tiles"></div>
-
-  <nav class="views">
-    <button data-view="zaroori" class="active">⭐ Zaroori<span class="badge" id="b-zar"></span></button>
-    <button data-view="kaam">✅ Mere Kaam<span class="badge" id="b-kaam"></span></button>
-    <button data-view="review">🌆 Shaam ka hisaab</button>
-    <button data-view="inbox">💬 Sab chats</button>
-    <button data-view="setup">⚙️ Setup</button>
+  <nav class="tabbar views">
+    <button class="tab active" data-view="zaroori">⭐ Zaroori <span class="badge" id="b-zar"></span></button>
+    <button class="tab" data-view="kaam">✅ Mere Kaam <span class="badge" id="b-kaam"></span></button>
+    <button class="tab" data-view="review">🌆 Shaam ka hisaab</button>
+    <button class="tab" data-view="inbox">💬 Sab chats</button>
+    <button class="tab" data-view="setup">⚙️ Setup</button>
+    <span class="right">
+      <span class="who" id="who"></span>
+      <span class="upd" id="upd"></span>
+      <select class="days" id="days" title="Sab chats mein kitne din ke messages">
+        <option value="1">Aaj</option>
+        <option value="2">Aaj + kal</option>
+        <option value="3">3 din</option>
+        <option value="7">7 din</option>
+      </select>
+      <button class="btn" id="reload">⟳ Refresh</button>
+    </span>
   </nav>
+<div class="wrap">
+  <div id="banner"></div>
+  <div class="topbar" id="tiles"></div>
 
   <!-- ============ INBOX ============ -->
   <!-- ============ ZAROORI ============ -->
@@ -222,6 +257,7 @@
       <input type="search" id="zq" placeholder="Group, naam ya message dhundho…">
     </div>
     <div class="chips" id="zchips"></div>
+    <div class="count" id="zcount"></div>
     <div id="zlist"><div class="empty">Load ho raha hai…</div></div>
   </section>
 
@@ -237,15 +273,15 @@
 
   <!-- ============ MERE KAAM ============ -->
   <section id="v-kaam" hidden>
-    <div class="card">
-      <h3>➕ Naya kaam / commitment</h3>
+    <details class="card" id="quickBox">
+      <summary style="font-weight:800;cursor:pointer;color:var(--brand)">➕ Naya kaam / commitment likho</summary>
       <div id="quickForm"></div>
       <div class="foot" style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
         <button class="btn pri" id="quickSave">Save karo</button>
       </div>
       <p class="hint">Meeting mein ho aur phone pe kuch commit kar diya? WhatsApp pe apne aap ko (<b>Message yourself</b>) likh do:<br>
         <code>#kaam Jyoti Timbers: payment kal ho jayega</code> — ye yahan apne aap aa jayega (kal = due kal, "payment" = Accounts).</p>
-    </div>
+    </details>
     <div class="chips" id="teamChips"></div>
     <div id="taskList"></div>
   </section>
@@ -464,11 +500,13 @@
   function renderTiles() {
     var c = counts();
     $('tiles').innerHTML =
-      '<button class="tile t-pend" data-act="zf" data-f="tag"><span class="n">' + c.ftag + '</span><span class="l">@ Mujhe tag</span><span class="s">baaki</span></button>' +
-      '<button class="tile t-neeraj" data-act="zf" data-f="neeraj"><span class="n">' + c.fneeraj + '</span><span class="l">👤 Neeraj</span><span class="s">baaki</span></button>' +
-      '<button class="tile t-pay" data-act="zf" data-f="payment"><span class="n">' + c.fpay + '</span><span class="l">💰 Payment</span><span class="s">baaki</span></button>' +
-      '<button class="tile t-over" data-act="view" data-v="kaam"><span class="n">' + c.over + '</span><span class="l">⏰ Overdue kaam</span><span class="s">time nikal gaya</span></button>' +
-      '<button class="tile t-today" data-act="view" data-v="kaam"><span class="n">' + c.today + '</span><span class="l">📌 Aaj ke kaam</span><span class="s">khule</span></button>';
+      '<div class="stats-line">' +
+        '<span class="s s-tag" data-act="zf" data-f="tag">@ Mujhe tag:<b>' + c.ftag + '</b></span>' +
+        '<span class="s s-neeraj" data-act="zf" data-f="neeraj">Neeraj:<b>' + c.fneeraj + '</b></span>' +
+        '<span class="s s-pay" data-act="zf" data-f="payment">Payment:<b>' + c.fpay + '</b></span>' +
+        '<span class="s s-over" data-act="view" data-v="kaam">Overdue kaam:<b>' + c.over + '</b></span>' +
+        '<span class="s s-today" data-act="view" data-v="kaam">Aaj ke kaam:<b>' + c.today + '</b></span>' +
+      '</div><div class="total">Zaroori baaki: <b>' + c.fopen + '</b></div>';
     $('b-kaam').textContent = (c.over + c.today) || '';
     $('b-zar').textContent = c.fopen || '';
   }
@@ -487,10 +525,11 @@
     var doneToday = flags.filter(function (f) { return f.done; }).length;
     var chips = [['all', 'Sab', open.length], ['tag', '@ Mujhe tag', count('tag')], ['neeraj', '👤 Neeraj', count('neeraj')],
                  ['payment', '💰 Payment', count('payment')], ['done', '✓ Aaj ho gaye', doneToday]];
+    var cls = { tag: ' c-tag', neeraj: ' c-neeraj', payment: ' c-pay' };
     $('zchips').innerHTML = chips.map(function (ch) {
-      return '<button class="chip' + (ZF === ch[0] ? ' active' : '') + '" data-act="zf" data-f="' + ch[0] + '">' +
+      return '<button class="chip' + (cls[ch[0]] || '') + (ZF === ch[0] ? ' active' : '') + '" data-act="zf" data-f="' + ch[0] + '">' +
              esc(ch[1]) + '<span class="c">' + ch[2] + '</span></button>';
-    }).join('');
+    }).join('') + (ZF !== 'all' || ZQ ? '<button class="chip c-clear" data-act="zf" data-f="all">✕ Clear</button>' : '');
 
     var q = ZQ.toLowerCase();
     var list = flags.filter(function (f) {
@@ -499,32 +538,33 @@
       if (q && (f.chat + ' ' + f.who + ' ' + f.text).toLowerCase().indexOf(q) === -1) return false;
       return true;
     });
+    $('zcount').textContent = list.length + ' dikh rahe';
     if (!list.length) {
       $('zlist').innerHTML = '<div class="empty">' + (ZF === 'done' ? 'Aaj abhi kuch tick nahi kiya.' :
         flags.length ? 'Sab ho gaya 🎉 Is list mein kuch baaki nahi.' : 'Abhi koi zaroori message nahi aaya.') + '</div>';
       return;
     }
-    // One card per group, groups with the newest item first; items newest first inside.
-    var groups = {}, order = [];
-    list.forEach(function (f) {
-      if (!groups[f.jid]) { groups[f.jid] = []; order.push(f.jid); }
-      groups[f.jid].push(f);
-    });
-    $('zlist').innerHTML = order.map(function (jid) {
-      var items = groups[jid], j = esc(jid);
-      return '<div class="zg"><div class="zg-h"><b>' + esc(items[0].chat) + '</b><span class="tm">' + items.length + '</span>' +
-        (ZF !== 'done' && items.length > 1 ? '<button class="btn sm" data-act="flag-group" data-jid="' + j + '">✓ Sab ho gaye</button>' : '') +
-        '</div>' + items.map(function (f) {
-          return '<div class="zi' + (f.done ? ' done' : '') + '"><div class="zi-h">' +
-            f.reasons.map(function (r) { return '<span class="rz ' + r + '">' + esc(REASON_LABEL[r] || r) + '</span>'; }).join('') +
-            '<b>' + esc(f.who) + '</b><span class="tm">' + fmtTime(f.t) + '</span></div>' +
-            '<div class="zt">' + (TYPE_ICON[f.type] || '') + zHl(f.text || '(' + f.type + ')') + '</div><div class="pa">' +
-            (f.done ? '<button class="btn sm" data-act="flag-undo" data-id="' + esc(f.id) + '">↩ Wapas laao</button>'
-                    : '<button class="btn sm pri" data-act="flag-done" data-id="' + esc(f.id) + '">✓ Ho gaya</button>' +
-                      '<button class="btn sm" data-act="kaam-flag" data-id="' + esc(f.id) + '">+ Kaam</button>') +
-            '</div></div>';
-        }).join('') + '</div>';
-    }).join('');
+    var perChat = {};
+    flags.forEach(function (f) { if (!f.done) perChat[f.jid] = (perChat[f.jid] || 0) + 1; });
+    var LABEL = { tag: '@ Aapko tag', neeraj: '👤 Neeraj', payment: '💰 Payment' };
+    $('zlist').innerHTML = '<div class="grid">' + list.map(function (f) {
+      var lead = f.reasons.indexOf('tag') !== -1 ? 'tag' : f.reasons[0];
+      var more = (perChat[f.jid] || 0) - (f.done ? 0 : 1);
+      return '<div class="pcard r-' + lead + (f.done ? ' is-done' : '') + '">' +
+        '<div class="card-top"><span class="supplier" title="' + esc(f.chat) + '">' + esc(f.chat) + '</span>' +
+          '<span class="po-date">' + fmtTime(f.t) + '</span></div>' +
+        '<div class="po-number">' + esc(f.who) + '</div>' +
+        '<div class="msgtext">' + (TYPE_ICON[f.type] || '') + zHl(f.text || '(' + f.type + ')') + '</div>' +
+        (more > 0 ? '<div class="meta">Is group mein <b>' + more + '</b> aur baaki</div>' : '') +
+        '<div class="pills">' + f.reasons.map(function (r) {
+          return '<span class="badge-pill r-' + r + '">' + esc(LABEL[r] || r) + '</span>';
+        }).join('') + (f.done ? '<span class="badge-pill r-soft">✓ Ho gaya ' + fmtTime(f.done) + '</span>' : '') + '</div>' +
+        '<div class="card-actions">' +
+          (f.done ? '<button class="bigbtn grey" data-act="flag-undo" data-id="' + esc(f.id) + '">↩ Wapas laao</button>'
+                  : '<button class="bigbtn done" data-act="flag-done" data-id="' + esc(f.id) + '">✓ Ho gaya</button>' +
+                    '<button class="bigbtn kaam" data-act="kaam-flag" data-id="' + esc(f.id) + '">+ Kaam banao</button>') +
+        '</div></div>';
+    }).join('') + '</div>';
   }
   function markFlags(ids, done) {
     var now = Date.now();
@@ -791,6 +831,7 @@
     call('addWaTask', [t], function (tasks) {
       D.tasks = tasks;
       initQuickForm();
+      $('quickBox').open = false;
       toast('Kaam save ho gaya ✓');
       renderAll();
     }, btn);
@@ -854,25 +895,32 @@
 
   // ---------- MERE KAAM ----------
   function taskHtml(t) {
-    var today = todayKey(), over = t.status === 'Open' && t.due && t.due < today;
+    var today = todayKey(), tomorrow = plusDays(1), open = t.status === 'Open';
+    var k = !open ? 'k-done' : (t.due && t.due < today) ? 'k-over' : (!t.due || t.due === today) ? 'k-today' : 'k-soon';
     var src = t.chat ? (chatBy(t.chat) || {}).name || '' : '';
-    return '<div class="task' + (over ? ' over' : '') + (t.status === 'Done' ? ' done' : '') + '">' +
-      '<input type="checkbox" data-act="done" data-id="' + esc(t.id) + '"' + (t.status === 'Done' ? ' checked' : '') + ' title="Ho gaya">' +
-      '<div class="tb"><div class="tt">' + (t.party ? esc(t.party) + ' — ' : '') + esc(t.kaam) + '</div>' +
-      '<div class="tmeta"><span class="pill ' + esc(t.type) + '">' + esc(t.type) + '</span>' +
-        (t.team && t.team !== 'Khud' ? '<span class="pill">' + esc(t.team) + '</span>' : '') +
-        '<span>📅 ' + (t.status === 'Done' ? 'Poora ' + fmtTime(t.doneAt) : fmtDue(t.due)) + '</span>' +
-        (t.source === 'WhatsApp #kaam' ? '<span>📲 #kaam</span>' : '') +
-        (src ? '<span>💬 ' + esc(src) + '</span>' : '') +
-        (t.notified ? '<span>📤 ' + esc(t.notified) + '</span>' : '') + '</div>' +
-      (t.note ? '<div class="tq">📝 ' + esc(t.note) + '</div>' : '') +
-      (t.message && t.source !== 'WhatsApp #kaam' ? '<div class="tq">' + esc(t.message.slice(0, 220)) + '</div>' : '') +
-      (t.status === 'Open' ? '<div class="ta">' +
-        '<button class="btn sm" data-act="notify" data-id="' + esc(t.id) + '">📤 Team ko bhejo</button>' +
-        (t.due !== plusDays(1) ? '<button class="btn sm" data-act="postpone" data-id="' + esc(t.id) + '">⏭ Kal pe</button>' : '') +
-        '<button class="btn sm" data-act="edit" data-id="' + esc(t.id) + '">✏️ Badlo</button></div>' : '') +
+    var id = esc(t.id);
+    return '<div class="pcard ' + k + '">' +
+      '<div class="card-top"><span class="supplier">' + esc(t.party || 'Bina party') + '</span>' +
+        '<span class="po-date">' + (open ? '📅 ' + fmtDue(t.due) : '✓ ' + fmtTime(t.doneAt)) + '</span></div>' +
+      '<div class="po-number">' + esc(t.kaam) + '</div>' +
+      (src ? '<div class="meta">Chat: <b>' + esc(src) + '</b></div>' : '') +
+      (t.message && t.source !== 'WhatsApp #kaam' ? '<div class="meta">💬 ' + esc(t.message.slice(0, 160)) + '</div>' : '') +
+      (t.note ? '<div class="meta">📝 ' + esc(t.note) + '</div>' : '') +
+      (t.notified ? '<div class="meta">📤 Bheja: <b>' + esc(t.notified) + '</b></div>' : '') +
+      '<div class="pills"><span class="badge-pill' + (t.type === 'Payment' ? ' r-payment' : t.type === 'Reply' ? ' r-tag' : '') + '">' + esc(t.type) + '</span>' +
+        (t.team && t.team !== 'Khud' ? '<span class="badge-pill r-soft">' + esc(t.team) + '</span>' : '') +
+        (k === 'k-over' ? '<span class="badge-pill r-over">Overdue</span>' : '') +
+        (t.source === 'WhatsApp #kaam' ? '<span class="badge-pill r-soft">📲 #kaam</span>' : '') + '</div>' +
+      '<div class="card-actions">' +
+        (open
+          ? '<button class="bigbtn done" data-act="task-done" data-id="' + id + '">✓ Ho gaya</button>' +
+            '<button class="bigbtn teal" data-act="notify" data-id="' + id + '">📤 Team ko bhejo</button>' +
+            '<div class="btnrow">' + (t.due !== tomorrow ? '<button class="bigbtn grey" data-act="postpone" data-id="' + id + '">⏭ Kal pe</button>' : '') +
+            '<button class="bigbtn grey" data-act="edit" data-id="' + id + '">✏️ Badlo</button></div>'
+          : '<button class="bigbtn grey" data-act="task-undo" data-id="' + id + '">↩ Wapas kholo</button>') +
       '</div></div>';
   }
+  function taskGrid(list) { return '<div class="grid">' + list.map(taskHtml).join('') + '</div>'; }
 
   function sortTasks(a, b) { return (a.due || '').localeCompare(b.due || '') || a.created - b.created; }
 
@@ -899,11 +947,11 @@
     var h = '';
     groups.forEach(function (g) {
       if (!g[2].length) return;
-      h += '<div class="sec ' + g[1] + '">' + g[0] + ' <span class="c">(' + g[2].length + ')</span></div>' + g[2].map(taskHtml).join('');
+      h += '<div class="sec ' + g[1] + '">' + g[0] + ' <span class="c">(' + g[2].length + ')</span></div>' + taskGrid(g[2]);
     });
     if (!open.length) h += '<div class="empty">Koi khula kaam nahi 🎉</div>';
-    if (doneToday.length) h += '<div class="sec">✅ Aaj poore hue (' + doneToday.length + ')</div>' + doneToday.map(taskHtml).join('');
-    if (doneEarlier.length) h += '<details><summary>Pichle 7 din mein poore (' + doneEarlier.length + ')</summary>' + doneEarlier.map(taskHtml).join('') + '</details>';
+    if (doneToday.length) h += '<div class="sec">✅ Aaj poore hue (' + doneToday.length + ')</div>' + taskGrid(doneToday);
+    if (doneEarlier.length) h += '<details><summary>Pichle 7 din mein poore (' + doneEarlier.length + ')</summary>' + taskGrid(doneEarlier) + '</details>';
     $('taskList').innerHTML = h;
   }
 
@@ -946,9 +994,9 @@
         '<div class="stat"><b>' + zc('payment') + '</b><span>Payment</span></div></div>' +
         '<p class="hint"><button class="btn sm pri" data-act="view" data-v="zaroori">⭐ Zaroori list kholo</button></p></div>';
     }
-    if (over.length) h += '<div class="sec red">⏰ Overdue (' + over.length + ')</div>' + over.map(taskHtml).join('');
-    if (todayLeft.length) h += '<div class="sec">📌 Aaj ke baaki (' + todayLeft.length + ')</div>' + todayLeft.map(taskHtml).join('');
-    if (tomorrow.length) h += '<div class="sec">🗓️ Kal ke liye (' + tomorrow.length + ')</div>' + tomorrow.map(taskHtml).join('');
+    if (over.length) h += '<div class="sec red">⏰ Overdue (' + over.length + ')</div>' + taskGrid(over);
+    if (todayLeft.length) h += '<div class="sec">📌 Aaj ke baaki (' + todayLeft.length + ')</div>' + taskGrid(todayLeft);
+    if (tomorrow.length) h += '<div class="sec">🗓️ Kal ke liye (' + tomorrow.length + ')</div>' + taskGrid(tomorrow);
 
     if (pend.length) {
       h += '<div class="sec">🔔 Tag / direct — reply baaki (' + pend.length + ')</div><div class="card">' +
@@ -968,7 +1016,7 @@
         }).join('') + '</div>';
     }
     if (madeToday.length) {
-      h += '<details><summary>🆕 Aaj bane saare kaam (' + madeToday.length + ')</summary>' + madeToday.map(taskHtml).join('') + '</details>';
+      h += '<details><summary>🆕 Aaj bane saare kaam (' + madeToday.length + ')</summary>' + taskGrid(madeToday) + '</details>';
     }
     if (busy.length) {
       h += '<div class="sec">💬 Aaj kahan kitne messages aaye</div><div class="card">' +
@@ -1044,7 +1092,7 @@
   function setView(v) {
     VIEW = v;
     store('view', v);
-    document.querySelectorAll('nav.views button').forEach(function (b) { b.classList.toggle('active', b.dataset.view === v); });
+    document.querySelectorAll('nav.views .tab').forEach(function (b) { b.classList.toggle('active', b.dataset.view === v); });
     ['zaroori', 'inbox', 'kaam', 'review', 'setup'].forEach(function (k) { $('v-' + k).hidden = k !== v; });
     if (v === 'setup') loadSetup();
   }
@@ -1078,6 +1126,8 @@
     else if (a === 'cat') changeCategory(jid);
     else if (a === 'zf') { ZF = el.dataset.f; setView('zaroori'); renderZaroori(); }
     else if (a === 'flag-done') markFlags([id], true);
+    else if (a === 'task-done') setTask(id, { status: 'Done' }, '✅ Ho gaya');
+    else if (a === 'task-undo') setTask(id, { status: 'Open' }, 'Wapas khula');
     else if (a === 'flag-undo') markFlags([id], false);
     else if (a === 'flag-group') {
       markFlags((D.flags || []).filter(function (f) { return f.jid === jid && !f.done &&
@@ -1125,7 +1175,7 @@
       $('n-group').innerHTML = groupOptions(e.target.value, sel);
     }
   });
-  document.querySelectorAll('nav.views button').forEach(function (b) {
+  document.querySelectorAll('nav.views .tab').forEach(function (b) {
     b.addEventListener('click', function () { setView(b.dataset.view); });
   });
   // Names and preview lines filter at once; message text is searched on the server, debounced.

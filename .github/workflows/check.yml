@@ -18,9 +18,15 @@ jobs:
       - run: npm install -g wrangler@4
       - name: Counts
         run: |
-          q() { wrangler d1 execute xp_wa_inbox --remote --json --command "$1" | node -e '
+          # Print whatever wrangler returns: the rows when it is the usual shape, the raw reply otherwise.
+          q() { wrangler d1 execute xp_wa_inbox --remote --json --command "$1" 2>&1 | node -e '
             let s = ""; process.stdin.on("data", d => s += d).on("end", () => {
-              const r = JSON.parse(s); console.log(JSON.stringify(r[0].results, null, 1)); });'; }
+              try {
+                const j = JSON.parse(s.slice(s.indexOf("[")));
+                const r = Array.isArray(j) ? j[0] : j;
+                console.log(JSON.stringify(r && r.results !== undefined ? r.results : j, null, 1));
+              } catch (e) { console.log(s.slice(-1500)); }
+            });' || true; }
           echo "== messages by source"
           q "SELECT event, COUNT(*) AS n, datetime(MAX(received_at)/1000, 'unixepoch', '+330 minutes') AS last_received_ist, datetime(MIN(t)/1000, 'unixepoch', '+330 minutes') AS oldest_msg_ist FROM messages GROUP BY event"
           echo "== last hour, per 10 minutes (IST)"

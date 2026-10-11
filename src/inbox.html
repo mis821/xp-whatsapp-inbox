@@ -190,7 +190,7 @@
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-bottom: 12px; }
   .card h3 { margin: 0 0 8px; font-size: 14px; }
   label { display: block; font-size: 12px; font-weight: 700; color: var(--sub); margin: 8px 0 4px; }
-  textarea, input[type=text], input[type=date], .card select, .modal select { width: 100%; padding: 8px 9px; border: 1px solid var(--line);
+  textarea, input[type=text], input[type=password], input[type=date], .card select, .modal select { width: 100%; padding: 8px 9px; border: 1px solid var(--line);
                                     border-radius: 8px; background: var(--card); }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   @media (max-width: 520px) { .grid2 { grid-template-columns: 1fr; } }
@@ -278,9 +278,11 @@
         <option value="7">7 days</option>
       </select>
       <button class="btn" id="reload">⟳ Refresh</button>
+      <button class="btn" id="lockBtn" title="Lock the dashboard now (it also locks itself on Windows+L)">🔒 Lock</button>
     </span>
   </nav>
 <div class="wrap">
+  <div id="lockhint"></div>
   <div id="banner"></div>
   <div class="topbar" id="tiles"></div>
 
@@ -432,10 +434,12 @@
 
   // The one door to the server: POST /api/rpc {fn, args} -> {data} or {error}.
   function rpc(fn, args, ok, fail) {
-    fetch('/api/rpc', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+    var active = isActive();
+    if (active) SEC.lastTouch = nowMs();
+    fetch('/api/rpc', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-XP-Active': active ? '1' : '0' },
                         body: JSON.stringify({ fn: fn, args: args || [] }) })
       .then(function (res) {
-        if (res.status === 401) { location.reload(); throw new Error('Login dobara karna hoga'); }
+        if (res.status === 401) { location.replace('/?locked=1'); throw new Error('Please sign in again.'); }
         return res.json();
       })
       .then(function (r) { if (r.error) throw new Error(r.error); ok && ok(r.data); })
@@ -1452,7 +1456,153 @@
       '<p class="hint">Around 9:30 AM: today\'s work and pending items. At 7 PM: the daily review. Sent to the office number.</p>' +
       (s.briefs ? '<button class="btn" data-act="briefs" data-on="0">🔕 Turn off (currently on)</button>'
                 : '<button class="btn pri" data-act="briefs" data-on="1">🔔 Turn on</button>') + '</div>' +
+      '<div class="card" id="secCard"><h3>🔒 Security — lock and fingerprint</h3><div class="hint">Loading…</div></div>' +
       '<div class="card"><a class="btn" style="text-decoration:none" href="/logout">Logout</a></div>';
+    loadSecurity();
+  }
+
+  // ---------- LOCK: Windows+L, walking away, or the 🔒 Lock button ----------
+  // A web page cannot see Windows+L itself, but Chrome can tell it when the screen is locked
+  // (IdleDetector, after a one-time "allow"). Without that permission the dashboard falls back to
+  // its own idle timer. Locking ends the session on the server too, so a reload only shows the
+  // sign-in page.
+  var SEC = { min: 15, lastInput: nowMs(), lastTouch: nowMs(), detector: null, abort: null, user: '',
+              perm: 'IdleDetector' in window ? '' : 'unsupported', locked: false, hintHidden: false };
+  function isActive() { return SEC.user === 'active' || nowMs() - SEC.lastInput < 60000; }
+  ['mousemove', 'mousedown', 'keydown', 'wheel', 'touchstart'].forEach(function (ev) {
+    document.addEventListener(ev, function () { SEC.lastInput = nowMs(); }, { passive: true, capture: true });
+  });
+  function lockNow() {
+    if (SEC.locked) return;
+    SEC.locked = true;
+    if (SEC.abort) SEC.abort.abort();
+    // Nothing stays on screen while the server is told.
+    document.body.innerHTML = '<div style="display:flex;min-height:100vh;align-items:center;justify-content:center;font-size:18px;font-weight:700">🔒 Locking…</div>';
+    var go = function () { location.replace('/?locked=1'); };
+    try { fetch('/logout', { method: 'POST', credentials: 'same-origin', keepalive: true }).then(go, go); } catch (e) { go(); }
+    setTimeout(go, 3000);
+  }
+  // Every 15 s (and whenever the tab comes back): lock after the idle time, otherwise tell the
+  // server the dashboard is still in use. With screen-lock detection on, "in use" means anywhere
+  // on the computer, so working in the WhatsApp tab does not lock the dashboard.
+  function checkIdle() {
+    if (SEC.locked) return;
+    if (SEC.detector && SEC.user === 'active') SEC.lastInput = nowMs();
+    if (nowMs() - SEC.lastInput > SEC.min * 60000) return lockNow();
+    if (isActive() && nowMs() - SEC.lastTouch > 120000) rpc('touchWa', []);
+  }
+  setInterval(checkIdle, 15000);
+  document.addEventListener('visibilitychange', checkIdle);
+  window.addEventListener('focus', checkIdle);
+
+  function startDetector() {
+    if (!('IdleDetector' in window) || SEC.locked) return;
+    if (SEC.abort) SEC.abort.abort();
+    var ctl = new AbortController(), d = new IdleDetector();
+    SEC.abort = ctl;
+    d.addEventListener('change', function () {
+      SEC.user = d.userState;
+      if (d.screenState === 'locked' || d.userState === 'idle') lockNow();
+      else SEC.lastInput = nowMs();
+    });
+    d.start({ threshold: Math.max(60000, SEC.min * 60000), signal: ctl.signal }).then(function () {
+      SEC.detector = d; SEC.user = d.userState || 'active'; renderLockHint();
+    }).catch(function () { SEC.detector = null; renderLockHint(); });
+  }
+  function allowDetector() {
+    if (!('IdleDetector' in window)) return;
+    IdleDetector.requestPermission().then(function (state) {
+      SEC.perm = state;
+      if (state === 'granted') { startDetector(); toast('🔒 The dashboard will now lock with Windows+L'); }
+      renderLockHint(); if (VIEW === 'setup') loadSecurity();
+    }).catch(function (e) { showError(e); });
+  }
+  function renderLockHint() {
+    var show = SEC.perm === 'prompt' && !SEC.hintHidden;
+    $('lockhint').innerHTML = show ? '<div class="banner amber">🔒 To lock this dashboard when you press <b>Windows+L</b>, Chrome needs your permission once. ' +
+      '<button class="btn sm pri" data-act="idle-allow">Allow screen-lock detection</button> <button class="btn sm" data-act="idle-later">Not now</button></div>' : '';
+  }
+  function detectorStatus() {
+    if (SEC.perm === 'unsupported') return '<b style="color:var(--amber)">not available in this browser</b> — use Google Chrome. The dashboard still locks after the idle time.';
+    if (SEC.detector) return '<b style="color:var(--green)">✓ on</b> — Windows+L locks the dashboard.';
+    if (SEC.perm === 'denied') return '<b style="color:var(--red)">blocked</b> — click the icon at the left of the address bar, open <b>Site settings</b>, and allow <b>"Your device use"</b>. Then reload.';
+    return '<b style="color:var(--amber)">off</b> <button class="btn sm pri" data-act="idle-allow">Turn on</button>';
+  }
+  function loadSecurity() {
+    rpc('getWaSecurity', [], renderSecurity, function (e) { var c = $('secCard'); if (c) c.innerHTML = '<div class="banner red">' + esc(e.message) + '</div>'; });
+  }
+  function renderSecurity(x) {
+    var card = $('secCard');
+    if (!card) return;
+    var fp = window.PublicKeyCredential;
+    card.innerHTML = '<h3>🔒 Security — lock and fingerprint</h3>' +
+      '<p class="hint" style="margin-top:0">The dashboard locks itself when you press <b>Windows+L</b>, and after ' +
+      '<select class="days" id="lockMin" style="width:auto;display:inline-block;padding:3px 6px">' + x.lockChoices.map(function (m) { return '<option value="' + m + '"' + (m === x.lockMin ? ' selected' : '') + '>' + m + ' minutes</option>'; }).join('') +
+      '</select> without use. To open it again, sign in with your fingerprint or the password.</p>' +
+      '<p class="hint">Screen-lock detection: ' + detectorStatus() + '</p>' +
+      '<p style="margin:10px 0 14px"><button class="btn" data-act="lock-now">🔒 Lock now</button></p>' +
+      '<h3>👆 Fingerprint sign-in (Windows Hello)</h3>' +
+      (x.passkeys.length ? '<div class="stats" style="margin-bottom:10px">' + x.passkeys.map(function (k) {
+        return '<div class="stat"><b style="font-size:14px">' + esc(k.name || 'Fingerprint') + '</b><span>Added ' + fmtTime(k.created) +
+          (k.lastUsed ? ' · last used ' + fmtTime(k.lastUsed) : '') + '</span><br><button class="btn sm" style="margin-top:6px" data-act="pk-remove" data-id="' + esc(k.id) + '">Remove</button></div>';
+      }).join('') + '</div>' : '<p class="hint" style="margin-top:0">No fingerprint added yet. Add one on this laptop and the sign-in page will offer <b>"Sign in with fingerprint"</b>.</p>') +
+      (fp ? '<div class="due"><input type="password" id="pkPw" placeholder="Dashboard password" autocomplete="current-password">' +
+            '<input type="text" id="pkName" value="Office laptop" maxlength="60" title="A name for this device">' +
+            '<button class="btn pri" data-act="pk-add">👆 Add fingerprint</button></div>'
+          : '<p class="hint"><b>This browser does not support fingerprint sign-in.</b> Use Google Chrome on Windows.</p>') +
+      '<p class="hint">The password is asked once here so nobody who finds the dashboard open can add their own fingerprint. ' +
+      'Note: Windows Hello always offers the laptop\'s <b>Windows Hello PIN</b> as an alternative to the fingerprint. If your team knows that PIN, ' +
+      'change it in Windows <b>Settings → Accounts → Sign-in options → PIN</b>. The Windows password itself cannot be used here.</p>';
+  }
+  function b64u(buf) {
+    var s = '', a = new Uint8Array(buf);
+    for (var i = 0; i < a.length; i++) s += String.fromCharCode(a[i]);
+    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  function unb64u(s) {
+    s = String(s).replace(/-/g, '+').replace(/_/g, '/');
+    while (s.length % 4) s += '=';
+    var b = atob(s), a = new Uint8Array(b.length);
+    for (var i = 0; i < b.length; i++) a[i] = b.charCodeAt(i);
+    return a;
+  }
+  function addFingerprint(btn) {
+    var pw = $('pkPw').value, name = $('pkName').value.trim() || 'Office laptop';
+    if (!pw) { $('pkPw').focus(); return toast('Enter the dashboard password first'); }
+    call('passkeyRegOptions', [pw], function (o) {
+      btn.disabled = true;
+      navigator.credentials.create({ publicKey: {
+        challenge: unb64u(o.challenge), rp: { id: o.rpId, name: o.rpName },
+        user: { id: unb64u(o.userId), name: 'XP Purchase', displayName: 'XP Purchase — WhatsApp Inbox' },
+        pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+        authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'preferred' },
+        excludeCredentials: o.exclude.map(function (id) { return { type: 'public-key', id: unb64u(id) }; }),
+        attestation: 'none', timeout: 60000 } }).then(function (cred) {
+        var r = cred.response;
+        if (!r.getPublicKey || !r.getAuthenticatorData) throw new Error('Please update Google Chrome to add a fingerprint.');
+        call('passkeyRegister', [{ password: pw, name: name, id: b64u(cred.rawId), publicKey: b64u(r.getPublicKey()), alg: r.getPublicKeyAlgorithm(),
+          clientDataJSON: b64u(r.clientDataJSON), authenticatorData: b64u(r.getAuthenticatorData()) }], function () {
+          toast('👆 Fingerprint added — use it on the sign-in page'); loadSecurity();
+        }, btn);
+      }).catch(function (e) {
+        btn.disabled = false;
+        showError(e && e.name === 'InvalidStateError' ? new Error('This laptop\'s fingerprint is already added.')
+          : e && e.name === 'NotAllowedError' ? new Error('Windows Hello was cancelled or timed out. Please try again.') : e);
+      });
+    }, btn);
+  }
+  document.addEventListener('change', function (e) {
+    if (e.target && e.target.id === 'lockMin') {
+      call('setWaLockMinutes', [Number(e.target.value)], function (m) { SEC.min = m; if (SEC.abort) startDetector(); toast('Auto-lock: ' + m + ' minutes'); });
+    }
+  });
+  rpc('getWaSecurity', [], function (x) { SEC.min = x.lockMin; if (SEC.abort) startDetector(); });
+  if (navigator.permissions && SEC.perm !== 'unsupported') {
+    navigator.permissions.query({ name: 'idle-detection' }).then(function (p) {
+      SEC.perm = p.state;
+      if (p.state === 'granted') startDetector();
+      renderLockHint();
+    }).catch(function () {});
   }
 
   // ---------- view switching ----------
@@ -1520,6 +1670,15 @@
     }
     else if (a === 'kaam-flag') kaamFromFlag(id);
     else if (a === 'sync') call('syncWaNames', [], function (n) { toast(n + ' group names refreshed'); loadSetup(); load(true); }, el);
+    else if (a === 'lock-now') lockNow();
+    else if (a === 'idle-allow') allowDetector();
+    else if (a === 'idle-later') { SEC.hintHidden = true; renderLockHint(); }
+    else if (a === 'pk-add') addFingerprint(el);
+    else if (a === 'pk-remove') {
+      if (confirm('Remove this fingerprint sign-in? You can add it again later with the password.')) {
+        call('removePasskey', [id], function () { toast('Fingerprint removed'); loadSecurity(); }, el);
+      }
+    }
     else if (a === 'briefs') call('setWaBriefs', [el.dataset.on === '1'], function () { loadSetup(); }, el);
     else if (a === 'copy') copyText(el.dataset.text);
     else if (a === 'copy-script') {
@@ -1586,6 +1745,7 @@
   $('allSeen').addEventListener('click', function () { if (D) allSeen(this); });
   $('quickSave').addEventListener('click', function () { if (D) saveQuick(this); });
   $('reload').addEventListener('click', function () { load(); });
+  $('lockBtn').addEventListener('click', function () { lockNow(); });
   $('days').value = String(DAYS);
   $('days').addEventListener('change', function () { DAYS = Number(this.value) || 2; store('days', DAYS); load(); });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !$('modal').hidden) closeModal(); });

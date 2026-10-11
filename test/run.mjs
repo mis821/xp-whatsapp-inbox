@@ -317,6 +317,100 @@ env.DB.raw.prepare("UPDATE messages SET received_at = ? WHERE id = 'Z1'").run(no
 await worker.scheduled({ cron: '0 21 * * *' }, env, ctx);
 assert.ok(env.DB.raw.prepare("SELECT 1 FROM messages WHERE id = 'Z1'").get(), 'ticked item kept for the record');
 
+// ---------- lock and fingerprint sign-in ----------
+const ORIGIN = 'https://wa.example.workers.dev';
+const sid = c => decodeURIComponent(c.split('=')[1]).split('.')[0];
+const loginCookie = async () => (await req('/login', { method: 'POST', body: new URLSearchParams({ password: 'secret-pass' }) })).headers.get('set-cookie').split(';')[0];
+const rpcAs = async (c, fn, args = [], extra = {}) => (await req('/api/rpc', { method: 'POST', headers: Object.assign({ cookie: c, origin: ORIGIN }, extra), body: JSON.stringify({ fn, args }) }));
+// idle: the auto-refresh alone does not keep a session open; real use does
+let c2 = await loginCookie();
+assert.equal((await rpc('getWaSecurity')).lockMin, 15, 'auto-lock defaults to 15 minutes');
+env.DB.raw.prepare('UPDATE sessions SET last_active = ? WHERE id = ?').run(Date.now() - 10 * 60000, sid(c2));
+assert.equal((await rpcAs(c2, 'touchWa')).status, 200);
+assert.ok(env.DB.raw.prepare('SELECT last_active FROM sessions WHERE id = ?').get(sid(c2)).last_active < Date.now() - 9 * 60000, 'background call does not count as use');
+await rpcAs(c2, 'touchWa', [], { 'x-xp-active': '1' });
+assert.ok(env.DB.raw.prepare('SELECT last_active FROM sessions WHERE id = ?').get(sid(c2)).last_active > Date.now() - 5000, 'real use keeps it open');
+env.DB.raw.prepare('UPDATE sessions SET last_active = ? WHERE id = ?').run(Date.now() - 21 * 60000, sid(c2));
+assert.equal((await rpcAs(c2, 'touchWa')).status, 401, 'idle past the lock time + grace → signed out on the server');
+assert.match(await (await req('/?locked=1', { headers: { cookie: c2 } })).text(), /Dashboard locked/);
+await rpc('setWaLockMinutes', 60);
+assert.equal((await rpc('getWaSecurity')).lockMin, 60);
+assert.equal(await rpc('setWaLockMinutes', 7), 15, 'only the offered lock times are accepted');
+// lock (what the page sends on Windows+L): the session is gone, a reload shows the sign-in page
+c2 = await loginCookie();
+assert.equal((await req('/logout', { method: 'POST', headers: { cookie: c2, origin: 'null' } })).status, 204);
+assert.equal((await rpcAs(c2, 'touchWa')).status, 401, 'locked session refused');
+assert.match(await (await req('/', { headers: { cookie: c2 } })).text(), /type="password"/);
+assert.doesNotMatch(await (await req('/')).text(), /Sign in with fingerprint/, 'no fingerprint button before one is added');
+assert.match((await (await req('/auth/passkey/options', { method: 'POST' })).json()).error, /No fingerprint/);
+
+// a pretend Windows Hello: real keys, the same bytes a browser would send
+const enc = new TextEncoder();
+const authData = async (count, flags = 0x05) => {
+  const a = new Uint8Array(37);
+  a.set(new Uint8Array(await crypto.subtle.digest('SHA-256', enc.encode('wa.example.workers.dev'))));
+  a[32] = flags; new DataView(a.buffer).setUint32(33, count);
+  return a;
+};
+const toDer = raw => {
+  const int = v => { let i = 0; while (i < v.length - 1 && v[i] === 0) i++; v = v.slice(i); if (v[0] & 0x80) v = Uint8Array.of(0, ...v); return [0x02, v.length, ...v]; };
+  const body = [...int(raw.slice(0, 32)), ...int(raw.slice(32))];
+  return Uint8Array.of(0x30, body.length, ...body);
+};
+const { b64u } = await import('../src/app.js');
+async function device(alg) {
+  const kp = alg === -7 ? await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify'])
+    : await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: Uint8Array.of(1, 0, 1), hash: 'SHA-256' }, true, ['sign', 'verify']);
+  return { alg, kp, id: b64u(crypto.getRandomValues(new Uint8Array(32))), count: 0, spki: b64u(await crypto.subtle.exportKey('spki', kp.publicKey)) };
+}
+const cdj = (type, challenge, origin = ORIGIN) => enc.encode(JSON.stringify({ type, challenge, origin, crossOrigin: false }));
+async function register(dev, password = 'secret-pass', opts = {}) {
+  const o = await rpc('passkeyRegOptions', password);
+  assert.equal(o.rpId, 'wa.example.workers.dev');
+  return rpc('passkeyRegister', { password, name: 'Office laptop', id: dev.id, publicKey: dev.spki, alg: dev.alg,
+    clientDataJSON: b64u(cdj('webauthn.create', opts.challenge || o.challenge, opts.origin)), authenticatorData: b64u(await authData(0, opts.flags)) });
+}
+async function signIn(dev, opts = {}) {
+  const o = await (await req('/auth/passkey/options', { method: 'POST' })).json();
+  const cd = cdj('webauthn.get', opts.challenge || o.challenge, opts.origin);
+  const ad = await authData(opts.count != null ? opts.count : ++dev.count, opts.flags);
+  const msg = new Uint8Array([...ad, ...new Uint8Array(await crypto.subtle.digest('SHA-256', cd))]);
+  let sig = new Uint8Array(await crypto.subtle.sign(dev.alg === -7 ? { name: 'ECDSA', hash: 'SHA-256' } : { name: 'RSASSA-PKCS1-v1_5' }, (opts.signer || dev).kp.privateKey, msg));
+  if (dev.alg === -7) sig = toDer(sig);
+  const body = { id: dev.id, clientDataJSON: b64u(cd), authenticatorData: b64u(ad), signature: b64u(sig) };
+  const res = await req('/auth/passkey/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  return { res, j: await res.json(), body, o };
+}
+const ec = await device(-7), rsa = await device(-257);
+await assert.rejects(rpc('passkeyRegOptions', 'wrong'), /Incorrect password/, 'adding a fingerprint needs the password');
+await assert.rejects(register(ec, 'secret-pass', { origin: 'https://evil.example' }), /did not come from the dashboard/);
+await assert.rejects(register(ec, 'secret-pass', { flags: 0x01 }), /did not verify/, 'fingerprint must actually be checked');
+await assert.rejects(register(ec, 'secret-pass', { challenge: 'made-up' }), /expired/);
+assert.equal(await register(ec), true);
+assert.equal(await register(rsa), true);
+assert.equal((await rpc('getWaSecurity')).passkeys.length, 2);
+assert.match(await (await req('/?locked=1')).text(), /Sign in with fingerprint[\s\S]*navigator\.credentials\.get/, 'lock screen offers the fingerprint');
+let si = await signIn(ec);
+assert.equal(si.res.status, 200, JSON.stringify(si.j));
+assert.deepEqual(si.o.ids.sort(), [ec.id, rsa.id].sort());
+const c3 = si.res.headers.get('set-cookie').split(';')[0];
+assert.equal((await rpcAs(c3, 'touchWa')).status, 200, 'fingerprint sign-in gives a working session');
+assert.equal(env.DB.raw.prepare('SELECT via FROM sessions WHERE id = ?').get(sid(c3)).via, 'fingerprint');
+assert.equal((await signIn(rsa)).res.status, 200, 'RS256 (TPM) keys work too');
+// replay of the same signed answer, a wrong key, a wrong site, an old counter
+const replay = await req('/auth/passkey/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(si.body) });
+assert.equal(replay.status, 401, 'a challenge works once');
+assert.equal((await signIn(ec, { signer: rsa.alg === ec.alg ? rsa : await device(-7) })).res.status, 401, 'signature from another key refused');
+assert.match((await signIn(ec, { origin: 'https://evil.example' })).j.error, /did not come from the dashboard/);
+assert.match((await signIn(ec, { count: 1 })).j.error, /counter/);
+assert.match((await signIn(ec, { flags: 0x01 })).j.error, /did not verify/);
+env.DB.raw.prepare("UPDATE settings SET v = '{\"n\":0,\"t\":0}' WHERE k = 'login_fails'").run();
+assert.equal((await signIn(ec)).res.status, 200, 'still works after the refused attempts');
+await rpc('removePasskey', rsa.id);
+assert.equal((await signIn(rsa)).res.status, 401, 'removed fingerprint no longer signs in');
+env.DB.raw.prepare("UPDATE settings SET v = '{\"n\":0,\"t\":0}' WHERE k = 'login_fails'").run();
+await rpc('setWaLockMinutes', 15);
+
 // speed: 30k messages over 260 chats, then one inbox load
 const ins = env.DB.raw.prepare('INSERT INTO messages (id, received_at, t, event, chat, is_group, from_me, sender, sender_name, type, text, tag) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');
 env.DB.raw.exec('BEGIN');

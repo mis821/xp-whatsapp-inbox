@@ -2,7 +2,7 @@
  * XpertPack — WhatsApp Inbox for the office number (XP Purchase), on Cloudflare Workers + D1.
  *
  *   POST /webhook?token=…   WaSender delivers every message / call here → stored in D1
- *   GET  /                  the dashboard (password login, 30-day cookie)
+ *   GET  /                  the dashboard (password or fingerprint sign-in; locks itself, see Login)
  *   POST /api/rpc           everything the dashboard asks for
  *   cron                    group names, morning / evening WhatsApp summary, nightly clean-up
  *
@@ -1095,7 +1095,14 @@ const RPC = {
   sendWaBriefNow: (env, a) => sendBrief(env, a[0] === 'morning' ? 'morning' : 'evening'),
   getWaSetup: (env, a, origin) => getSetup(env, origin),
   setWaBriefs: async (env, a) => { await setSetting(env, 'briefs', a[0] ? 'on' : 'off'); return true; },
-  syncWaNames: (env) => syncNames(env, true)
+  syncWaNames: (env) => syncNames(env, true),
+  // Security: auto-lock time and fingerprint sign-in (see the Login section)
+  getWaSecurity: (env) => getSecurity(env),
+  setWaLockMinutes: async (env, a) => { await setSetting(env, 'lock_minutes', lockMinutes(a[0])); return lockMinutes(a[0]); },
+  touchWa: () => true,
+  passkeyRegOptions: (env, a, origin) => passkeyRegOptions(env, a[0], origin),
+  passkeyRegister: (env, a, origin) => passkeyRegister(env, a[0], origin),
+  removePasskey: async (env, a) => { await env.DB.prepare('DELETE FROM passkeys WHERE id = ?').bind(String(a[0] || '')).run(); return true; }
 };
 
 // ===================================================================
@@ -1107,46 +1114,251 @@ async function hmac(env, msg) {
   const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(msg));
   return Array.from(new Uint8Array(sig), b => b.toString(16).padStart(2, '0')).join('');
 }
-async function isAuthed(req, env) {
-  const m = (req.headers.get('cookie') || '').match(/(?:^|;\s*)xpwa=([^;]+)/);
-  if (!m) return false;
-  const [exp, sig] = decodeURIComponent(m[1]).split('.');
-  if (!exp || !sig || Number(exp) < Date.now()) return false;
-  return safeEq(sig, await hmac(env, 'session:' + exp));
+
+// Sessions. The cookie only names a row in `sessions`; the row is what makes it valid. Locking
+// deletes the row, and a session nobody has used for the auto-lock time (plus a few minutes'
+// grace for the browser's own timer) is refused here even if the browser never sent the lock.
+export const LOCK_CHOICES = [5, 10, 15, 30, 60];
+const LOCK_GRACE_MIN = 5;
+function lockMinutes(v) { const n = Number(v); return LOCK_CHOICES.indexOf(n) !== -1 ? n : 15; }
+function sessionCookie(value, maxAge) {
+  return 'xpwa=' + value + '; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=' + maxAge;
 }
-async function login(req, env) {
+async function newSession(env, via) {
+  const id = randomHex(18), now = Date.now();
+  await env.DB.prepare('INSERT INTO sessions (id, created, last_active, via) VALUES (?, ?, ?, ?)').bind(id, now, now, via).run();
+  return sessionCookie(encodeURIComponent(id + '.' + await hmac(env, 'sess:' + id)), SESSION_DAYS * 86400);
+}
+async function getSession(req, env) {
+  const m = (req.headers.get('cookie') || '').match(/(?:^|;\s*)xpwa=([^;]+)/);
+  if (!m) return null;
+  const [id, sig] = decodeURIComponent(m[1]).split('.');
+  if (!id || !sig || !safeEq(sig, await hmac(env, 'sess:' + id))) return null;
+  const s = await env.DB.prepare("SELECT id, created, last_active, (SELECT v FROM settings WHERE k = 'lock_minutes') AS lm " +
+    'FROM sessions WHERE id = ?').bind(id).first();
+  if (!s) return null;
+  const now = Date.now();
+  if (now - s.created > SESSION_DAYS * DAY || now - s.last_active > (lockMinutes(s.lm) + LOCK_GRACE_MIN) * 60000) {
+    await env.DB.prepare('DELETE FROM sessions WHERE id = ?').bind(id).run();
+    return null;
+  }
+  return s;
+}
+// The dashboard says when someone is really using it (mouse, keyboard, or Windows reporting the
+// user active) — the three-minute auto-refresh on its own does not keep a session open.
+async function touchSession(env, s) {
+  const now = Date.now();
+  if (now - s.last_active > 30000) await env.DB.prepare('UPDATE sessions SET last_active = ? WHERE id = ?').bind(now, s.id).run();
+}
+async function endSession(req, env) {
+  const s = await getSession(req, env);
+  if (s) await env.DB.prepare('DELETE FROM sessions WHERE id = ?').bind(s.id).run();
+}
+
+async function loginBlocked(env) {
   const fails = JSON.parse((await getSetting(env, 'login_fails')) || '{"n":0,"t":0}');
-  if (fails.n >= 10 && Date.now() - fails.t < 15 * 60000) return loginPage('Too many failed attempts — please try again in 15 minutes.', 429);
+  return fails.n >= 10 && Date.now() - fails.t < 15 * 60000;
+}
+async function loginFailed(env) {
+  const fails = JSON.parse((await getSetting(env, 'login_fails')) || '{"n":0,"t":0}');
+  const n = Date.now() - fails.t < 15 * 60000 ? fails.n + 1 : 1;
+  await setSetting(env, 'login_fails', JSON.stringify({ n, t: Date.now() }));
+  await new Promise(r => setTimeout(r, 800));
+}
+const TOO_MANY = 'Too many failed attempts — please try again in 15 minutes.';
+
+async function login(req, env) {
+  if (await loginBlocked(env)) return loginPage(env, TOO_MANY, 429);
   const form = await req.formData();
   const pw = String(form.get('password') || '');
   if (!env.DASHBOARD_PASSWORD || !safeEq(pw, env.DASHBOARD_PASSWORD)) {
-    const n = Date.now() - fails.t < 15 * 60000 ? fails.n + 1 : 1;
-    await setSetting(env, 'login_fails', JSON.stringify({ n, t: Date.now() }));
-    await new Promise(r => setTimeout(r, 800));
-    return loginPage('Incorrect password.', 401);
+    await loginFailed(env);
+    return loginPage(env, 'Incorrect password.', 401);
   }
   await setSetting(env, 'login_fails', JSON.stringify({ n: 0, t: 0 }));
-  const exp = Date.now() + SESSION_DAYS * DAY;
-  const cookie = 'xpwa=' + encodeURIComponent(exp + '.' + await hmac(env, 'session:' + exp)) +
-    '; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=' + SESSION_DAYS * 86400;
-  return new Response(null, { status: 303, headers: { Location: '/', 'Set-Cookie': cookie } });
+  return new Response(null, { status: 303, headers: { Location: '/', 'Set-Cookie': await newSession(env, 'password') } });
+}
+
+// ===================================================================
+// Fingerprint sign-in — WebAuthn passkeys on Windows Hello
+// ===================================================================
+// The laptop keeps the private key in its security chip and only uses it after Windows Hello has
+// checked the fingerprint (or the Windows Hello PIN). The dashboard stores the public key and
+// checks each sign-in's signature against it.
+const PK_ALGS = {
+  '-7': { imp: { name: 'ECDSA', namedCurve: 'P-256' }, ver: { name: 'ECDSA', hash: 'SHA-256' } },
+  '-257': { imp: { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, ver: { name: 'RSASSA-PKCS1-v1_5' } }
+};
+export function b64u(bytes) {
+  let s = '';
+  for (const b of new Uint8Array(bytes)) s += String.fromCharCode(b);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function unb64u(s) {
+  s = String(s || '').replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  const bin = atob(s), out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+async function sha256(bytes) { return new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)); }
+// WebAuthn sends ECDSA signatures DER-encoded; WebCrypto wants r and s side by side.
+export function derToRaw(der) {
+  const bad = () => { throw new Error('Unreadable signature.'); };
+  if (der[0] !== 0x30) bad();
+  let i = der[1] & 0x80 ? 2 + (der[1] & 0x7f) : 2;
+  const out = new Uint8Array(64);
+  for (let k = 0; k < 2; k++) {
+    if (der[i] !== 0x02) bad();
+    const len = der[i + 1];
+    let v = der.subarray(i + 2, i + 2 + len);
+    i += 2 + len;
+    while (v.length > 32 && v[0] === 0) v = v.subarray(1);
+    if (v.length > 32) bad();
+    out.set(v, k * 32 + 32 - v.length);
+  }
+  return out;
+}
+async function newChallenge(env, kind) {
+  const now = Date.now();
+  await env.DB.prepare('DELETE FROM challenges WHERE exp < ?').bind(now).run();
+  const live = await env.DB.prepare('SELECT COUNT(*) AS n FROM challenges').first();
+  if (live.n > 50) throw new Error('Too many sign-in attempts — please wait two minutes.');
+  const c = b64u(crypto.getRandomValues(new Uint8Array(32)));
+  await env.DB.prepare('INSERT INTO challenges (c, kind, exp) VALUES (?, ?, ?)').bind(c, kind, now + 120000).run();
+  return c;
+}
+// Checks what the browser signed: the right kind of request, from this dashboard, answering a
+// challenge we issued (each one works once), and with the fingerprint actually verified.
+async function checkCeremony(env, kind, clientDataB64, authDataB64, origin) {
+  const clientData = unb64u(clientDataB64), authData = unb64u(authDataB64);
+  let cd;
+  try { cd = JSON.parse(new TextDecoder().decode(clientData)); } catch (e) { throw new Error('Unreadable sign-in data.'); }
+  if (cd.type !== (kind === 'reg' ? 'webauthn.create' : 'webauthn.get')) throw new Error('Wrong kind of request.');
+  if (cd.origin !== origin) throw new Error('This request did not come from the dashboard.');
+  const used = await env.DB.prepare('DELETE FROM challenges WHERE c = ? AND kind = ? AND exp > ? RETURNING c')
+    .bind(String(cd.challenge || ''), kind, Date.now()).first();
+  if (!used) throw new Error('This request has expired — please try again.');
+  if (authData.length < 37) throw new Error('Unreadable sign-in data.');
+  const rpHash = await sha256(new TextEncoder().encode(new URL(origin).hostname));
+  if (!rpHash.every((b, i) => b === authData[i])) throw new Error('This fingerprint belongs to a different website.');
+  const flags = authData[32];
+  if (!(flags & 1) || !(flags & 4)) throw new Error('Windows Hello did not verify the fingerprint.');
+  return { clientData, authData, count: new DataView(authData.buffer, authData.byteOffset + 33, 4).getUint32(0) };
+}
+
+async function passkeyOptions(env, origin) {
+  const ids = (await env.DB.prepare('SELECT id FROM passkeys').all()).results.map(r => r.id);
+  if (!ids.length) throw new Error('No fingerprint has been set up yet — sign in with the password, then add it under Setup.');
+  return { challenge: await newChallenge(env, 'login'), rpId: new URL(origin).hostname, ids };
+}
+
+async function passkeyLogin(req, env, origin) {
+  if (await loginBlocked(env)) return json({ error: TOO_MANY }, 429);
+  let b;
+  try { b = await req.json(); } catch (e) { return json({ error: 'Unreadable sign-in data.' }, 400); }
+  try {
+    const pk = await env.DB.prepare('SELECT * FROM passkeys WHERE id = ?').bind(String(b.id || '')).first();
+    if (!pk) throw new Error('This fingerprint is not registered for the dashboard.');
+    const c = await checkCeremony(env, 'login', b.clientDataJSON, b.authenticatorData, origin);
+    if (pk.sign_count && c.count <= pk.sign_count) throw new Error('This sign-in was refused (security counter mismatch).');
+    const a = PK_ALGS[String(pk.alg)];
+    const key = await crypto.subtle.importKey('spki', unb64u(pk.pk), a.imp, false, ['verify']);
+    const data = new Uint8Array(c.authData.length + 32);
+    data.set(c.authData);
+    data.set(await sha256(c.clientData), c.authData.length);
+    const sig = unb64u(b.signature);
+    if (!(await crypto.subtle.verify(a.ver, key, pk.alg === -7 ? derToRaw(sig) : sig, data))) throw new Error('The fingerprint check failed.');
+    await env.DB.prepare('UPDATE passkeys SET last_used = ?, sign_count = ? WHERE id = ?').bind(Date.now(), c.count, pk.id).run();
+  } catch (e) {
+    await loginFailed(env);
+    return json({ error: e.message || String(e) }, 401);
+  }
+  await setSetting(env, 'login_fails', JSON.stringify({ n: 0, t: 0 }));
+  return new Response(JSON.stringify({ ok: true }), { headers: Object.assign({ 'Content-Type': 'application/json',
+    'Set-Cookie': await newSession(env, 'fingerprint') }, SEC_HEADERS) });
+}
+
+// Adding a fingerprint needs the dashboard password as well, so someone who finds the dashboard
+// open cannot add their own way in.
+function checkPassword(env, pw) {
+  if (!env.DASHBOARD_PASSWORD || !safeEq(String(pw || ''), env.DASHBOARD_PASSWORD)) throw new Error('Incorrect password.');
+}
+async function passkeyRegOptions(env, pw, origin) {
+  checkPassword(env, pw);
+  const ids = (await env.DB.prepare('SELECT id FROM passkeys').all()).results.map(r => r.id);
+  return { challenge: await newChallenge(env, 'reg'), rpId: new URL(origin).hostname, rpName: 'XP WhatsApp Inbox',
+    userId: b64u(new TextEncoder().encode('xp-inbox-owner')), exclude: ids };
+}
+async function passkeyRegister(env, p, origin) {
+  p = p || {};
+  checkPassword(env, p.password);
+  const c = await checkCeremony(env, 'reg', p.clientDataJSON, p.authenticatorData, origin);
+  const a = PK_ALGS[String(Number(p.alg))];
+  if (!a) throw new Error('This device uses a key type the dashboard does not support.');
+  try { await crypto.subtle.importKey('spki', unb64u(p.publicKey), a.imp, false, ['verify']); } catch (e) { throw new Error('Unreadable public key.'); }
+  const id = String(p.id || '');
+  if (!/^[A-Za-z0-9_-]{16,1400}$/.test(id)) throw new Error('Unreadable credential id.');
+  await env.DB.prepare('INSERT INTO passkeys (id, pk, alg, name, created, sign_count) VALUES (?, ?, ?, ?, ?, ?)')
+    .bind(id, String(p.publicKey), Number(p.alg), String(p.name || 'This laptop').slice(0, 60), Date.now(), c.count).run();
+  return true;
+}
+async function getSecurity(env) {
+  return {
+    lockMin: lockMinutes(await getSetting(env, 'lock_minutes')), lockChoices: LOCK_CHOICES,
+    passkeys: (await env.DB.prepare('SELECT id, name, created, last_used FROM passkeys ORDER BY created').all()).results
+      .map(r => ({ id: r.id, name: r.name, created: r.created, lastUsed: r.last_used || 0 }))
+  };
 }
 
 const SEC_HEADERS = { 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
 
-function loginPage(err, status) {
+// The sign-in page, also shown as the lock screen. With a fingerprint registered, the big button
+// signs in through Windows Hello; the password stays underneath as the fallback.
+async function loginPage(env, err, status, locked) {
+  const hasPasskey = !!(await env.DB.prepare('SELECT 1 AS x FROM passkeys LIMIT 1').first());
   const html = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
     '<title>WhatsApp Inbox</title><style>body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f4f5f7;margin:0;' +
-    'display:flex;min-height:100vh;align-items:center;justify-content:center;color:#1a1a1a}form{background:#fff;border:1px solid #e3e5e9;' +
-    'border-radius:14px;padding:24px;width:min(340px,calc(100vw - 32px))}h1{font-size:18px;margin:0 0 14px}input{width:100%;padding:10px;' +
-    'border:1px solid #d0d3d9;border-radius:8px;font-size:15px;box-sizing:border-box}button{margin-top:12px;width:100%;padding:10px;' +
-    'border:0;border-radius:8px;background:#1e3a8a;color:#fff;font-weight:700;font-size:15px}.e{color:#dc2626;font-size:13px;margin-top:10px}' +
-    '@media (prefers-color-scheme:dark){body{background:#111214;color:#e8e8ea}form{background:#1b1c1f;border-color:#2d2f34}input{background:#111214;color:#e8e8ea;border-color:#2d2f34}}' +
-    '</style></head><body><form method="post" action="/login"><h1>📥 WhatsApp Inbox</h1>' +
-    '<input type="password" name="password" placeholder="Password" autofocus autocomplete="current-password">' +
-    '<button type="submit">Sign in</button>' + (err ? '<div class="e">' + err + '</div>' : '') + '</form></body></html>';
+    'display:flex;min-height:100vh;align-items:center;justify-content:center;color:#1a1a1a}main{background:#fff;border:1px solid #e3e5e9;' +
+    'border-radius:14px;padding:24px;width:min(340px,calc(100vw - 32px))}h1{font-size:18px;margin:0 0 6px}.sub{font-size:13px;color:#6b7280;margin:0 0 14px}' +
+    'input{width:100%;padding:10px;border:1px solid #d0d3d9;border-radius:8px;font-size:15px;box-sizing:border-box}button{margin-top:12px;width:100%;padding:10px;' +
+    'border:0;border-radius:8px;background:#1e3a8a;color:#fff;font-weight:700;font-size:15px;cursor:pointer}button.fp{padding:14px;font-size:16px;margin:0}' +
+    'button.alt{background:#fff;color:#1e3a8a;border:1px solid #d0d3d9}.or{text-align:center;font-size:12px;color:#6b7280;margin:14px 0 10px}' +
+    '.e{color:#dc2626;font-size:13px;margin-top:10px}' +
+    '@media (prefers-color-scheme:dark){body{background:#111214;color:#e8e8ea}main{background:#1b1c1f;border-color:#2d2f34}input{background:#111214;color:#e8e8ea;border-color:#2d2f34}' +
+    'button.alt{background:#1b1c1f;color:#c7d2fe;border-color:#2d2f34}}</style></head><body><main>' +
+    '<h1>' + (locked ? '🔒 Dashboard locked' : '📥 WhatsApp Inbox') + '</h1>' +
+    '<p class="sub">' + (locked ? 'The dashboard was locked. Sign in again to continue.' : 'Sign in to continue.') + '</p>' +
+    (hasPasskey ? '<button type="button" class="fp" id="fp" autofocus>👆 Sign in with fingerprint</button><div class="or">or use the password</div>' : '') +
+    '<form method="post" action="/login"><input type="password" name="password" placeholder="Password" autocomplete="current-password"' +
+    (hasPasskey ? '' : ' autofocus') + '><button type="submit"' + (hasPasskey ? ' class="alt"' : '') + '>Sign in</button></form>' +
+    '<div class="e" id="err">' + (err || '') + '</div></main>' +
+    (hasPasskey ? '<script>' + LOGIN_JS + '</script>' : '') + '</body></html>';
   return new Response(html, { status: status || 200, headers: Object.assign({ 'Content-Type': 'text/html; charset=utf-8' }, SEC_HEADERS) });
 }
+const LOGIN_JS = `
+function b64u(b){var s='',a=new Uint8Array(b);for(var i=0;i<a.length;i++)s+=String.fromCharCode(a[i]);return btoa(s).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');}
+function unb64u(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';var b=atob(s),a=new Uint8Array(b.length);for(var i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a;}
+var btn=document.getElementById('fp'),err=document.getElementById('err');
+btn.addEventListener('click',async function(){
+  err.textContent='';btn.disabled=true;
+  try{
+    if(!window.PublicKeyCredential)throw new Error('This browser does not support fingerprint sign-in. Please use the password.');
+    var o=await (await fetch('/auth/passkey/options',{method:'POST'})).json();
+    if(o.error)throw new Error(o.error);
+    var cred=await navigator.credentials.get({publicKey:{challenge:unb64u(o.challenge),rpId:o.rpId,timeout:60000,userVerification:'required',
+      allowCredentials:o.ids.map(function(id){return{type:'public-key',id:unb64u(id)};})}});
+    var r=cred.response;
+    var res=await fetch('/auth/passkey/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:b64u(cred.rawId),
+      clientDataJSON:b64u(r.clientDataJSON),authenticatorData:b64u(r.authenticatorData),signature:b64u(r.signature)})});
+    var j=await res.json();
+    if(!j.ok)throw new Error(j.error||'Sign-in failed.');
+    location.replace('/');
+  }catch(e){
+    err.textContent=e&&e.name==='NotAllowedError'?'Fingerprint sign-in was cancelled or timed out. Please try again.':(e&&e.message)||String(e);
+    btn.disabled=false;
+  }
+});`;
 
 function json(data, status) {
   return new Response(JSON.stringify(data), { status: status || 200, headers: Object.assign({ 'Content-Type': 'application/json' }, SEC_HEADERS) });
@@ -1187,15 +1399,28 @@ export function makeWorker(inboxHtml, userScript, coreScript) {
         }
         if (p === '/favicon.ico') return new Response(null, { status: 204 });
         if (p === '/login' && req.method === 'POST') return login(req, env);
-        if (p === '/logout') {
-          return new Response(null, { status: 303, headers: { Location: '/', 'Set-Cookie': 'xpwa=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0' } });
+        // No origin check needed for fingerprint sign-in: the browser signs the page's origin into
+        // the answer itself, and checkCeremony refuses any other.
+        if (p === '/auth/passkey/options' && req.method === 'POST') {
+          try { return json(await passkeyOptions(env, url.origin)); } catch (e) { return json({ error: e.message }, 200); }
         }
-        const authed = await isAuthed(req, env);
+        if (p === '/auth/passkey/login' && req.method === 'POST') return passkeyLogin(req, env, url.origin);
+        // Logout and lock both end the session on the server. GET (the Logout link) goes back to the
+        // sign-in page; POST is what the dashboard sends when it locks itself.
+        if (p === '/logout') {
+          await endSession(req, env);
+          const gone = sessionCookie('', 0);
+          if (req.method === 'POST') return new Response(null, { status: 204, headers: { 'Set-Cookie': gone } });
+          return new Response(null, { status: 303, headers: { Location: '/', 'Set-Cookie': gone } });
+        }
+        const session = await getSession(req, env);
+        const authed = !!session;
         if (p === '/api/rpc' && req.method === 'POST') {
           if (!authed) return json({ error: 'login' }, 401);
           // Same-origin only: a page elsewhere cannot drive the inbox with the user's cookie.
           const origin = req.headers.get('origin');
           if (origin && origin !== url.origin) return json({ error: 'bad origin' }, 403);
+          if (req.headers.get('x-xp-active') === '1') await touchSession(env, session);
           const { fn, args } = await req.json();
           if (!Object.prototype.hasOwnProperty.call(RPC, fn)) return json({ error: 'unknown call ' + fn }, 400);
           try {
@@ -1207,20 +1432,21 @@ export function makeWorker(inboxHtml, userScript, coreScript) {
         // The Tampermonkey script, with this inbox's webhook URL (and so its token) baked in —
         // which is why it is only handed to a logged-in browser.
         if (p === '/wa-sync.user.js' && req.method === 'GET') {
-          if (!authed) return loginPage('');
+          if (!authed) return loginPage(env, '');
           const token = await secretSetting(env, 'webhook_token');
           return new Response(String(userScript || '').replace('__ENDPOINT__', url.origin + '/webhook?token=' + token),
             { headers: Object.assign({ 'Content-Type': 'text/javascript; charset=utf-8' }, SEC_HEADERS) });
         }
         if ((p === '/export/items.csv' || p === '/export/worklist.csv') && req.method === 'GET') {
-          if (!authed) return loginPage('');
+          if (!authed) return loginPage(env, '');
           const which = p.indexOf('worklist') !== -1 ? 'worklist' : 'items';
           return new Response(await exportCsv(env, which), { headers: Object.assign({
             'Content-Type': 'text/csv; charset=utf-8',
             'Content-Disposition': 'attachment; filename="xp-' + which + '-' + dayKey(Date.now()) + '.csv"' }, SEC_HEADERS) });
         }
         if (p === '/' && req.method === 'GET') {
-          if (!authed) return loginPage('');
+          if (!authed) return loginPage(env, '', 200, url.searchParams.has('locked'));
+          await touchSession(env, session);
           return new Response(inboxHtml, { headers: Object.assign({ 'Content-Type': 'text/html; charset=utf-8' }, SEC_HEADERS) });
         }
         return new Response('not found', { status: 404 });
@@ -1240,6 +1466,8 @@ export function makeWorker(inboxHtml, userScript, coreScript) {
         // Only the everyday chatter goes. Every message that was ever on a list (Zaroori, Task List,
         // Owners) stays, with its flag, for good — that is the record the directors' report is built on.
         await env.DB.prepare('DELETE FROM messages WHERE received_at < ? AND id NOT IN (SELECT msg_id FROM flags)').bind(cut).run();
+        await env.DB.batch([env.DB.prepare('DELETE FROM sessions WHERE last_active < ?').bind(Date.now() - DAY),
+          env.DB.prepare('DELETE FROM challenges WHERE exp < ?').bind(Date.now())]);
         await syncNames(env, true);
       } else if (cron === '0 */6 * * *') {
         await syncNames(env, false);

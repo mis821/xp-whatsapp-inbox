@@ -19,6 +19,12 @@ Cloudflare Workers, with data in a Cloudflare D1 database (free plan).
 - **📊 Report** shows, per month, what came in and what was handled, response times and what is open now. Both lists download as Excel (CSV).
 - The **Backup** workflow exports the full database every night (kept 90 days under Actions → Backup → Artifacts). Cloudflare D1 additionally keeps 30 days of point-in-time history.
 
+## Lock and fingerprint sign-in
+- The dashboard locks itself when the screen is locked (**Windows+L**) and after a chosen idle time (5–60 minutes, default 15), or with the **🔒 Lock** button. Locking ends the session on the server, so reloading the page only shows the sign-in screen.
+- Windows+L detection uses Chrome's screen-lock detection, which needs a one-time **Allow** (banner at the top, or ⚙️ Setup → Security). Without it, only the idle timer applies.
+- **Fingerprint sign-in:** ⚙️ Setup → Security → enter the dashboard password → **Add fingerprint**. The sign-in page then offers **"Sign in with fingerprint"** (Windows Hello). The password always remains available as a fallback.
+- Windows Hello also accepts the laptop's Windows Hello PIN in place of the fingerprint; keep that PIN private.
+
 ## Setup (once)
 1. **Cloudflare account (free):** https://dash.cloudflare.com/sign-up — open **Workers & Pages** once so the `*.workers.dev` address is created.
 2. **API token:** My Profile → API Tokens → Create Token → template **"Edit Cloudflare Workers"**, add **Account → D1 → Edit**. Note the **Account ID** shown on Workers & Pages.

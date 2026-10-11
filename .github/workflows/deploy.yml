@@ -1,0 +1,93 @@
+# Deploys the Worker to Cloudflare on every push to main (or by hand from the Actions tab).
+#
+# Repository secrets (Settings > Secrets and variables > Actions):
+#   CLOUDFLARE_API_TOKEN    token with "Workers Scripts: Edit" + "D1: Edit" on your account
+#   CLOUDFLARE_ACCOUNT_ID   Cloudflare dashboard > Workers & Pages > Account ID (right side)
+#   WASENDER_API_KEY        WaSender dashboard > your session > API key
+#   DASHBOARD_PASSWORD      the password you will type to open the inbox
+#
+# The D1 database is created on the first run and found by name after that, so there is no id
+# to copy anywhere.
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WASENDER_API_KEY: ${{ secrets.WASENDER_API_KEY }}
+      DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Check the secrets are set
+        run: |
+          missing=0
+          for v in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID WASENDER_API_KEY DASHBOARD_PASSWORD; do
+            if [ -z "${!v}" ]; then echo "::error::Secret $v is not set (Settings > Secrets and variables > Actions)."; missing=1; fi
+          done
+          exit $missing
+
+      - name: Tests
+        run: node test/run.mjs
+
+      - name: Install wrangler
+        run: npm install -g wrangler@4
+
+      - name: Find or create the database
+        run: |
+          find_id() {
+            wrangler d1 list --json | node -e '
+              let s = ""; process.stdin.on("data", d => s += d).on("end", () => {
+                const db = JSON.parse(s).find(x => x.name === "xp_wa_inbox");
+                console.log(db ? (db.uuid || db.id || db.database_id || "") : "");
+              });'
+          }
+          id=$(find_id)
+          if [ -z "$id" ]; then
+            echo "Creating D1 database xp_wa_inbox"
+            wrangler d1 create xp_wa_inbox
+            id=$(find_id)
+          fi
+          test -n "$id" || { echo "::error::Could not find or create the D1 database."; exit 1; }
+          sed -i "s/__D1_DATABASE_ID__/$id/" wrangler.toml
+          echo "Database: $id"
+
+      - name: Apply database migrations
+        run: wrangler d1 migrations apply xp_wa_inbox --remote
+
+      - name: Deploy the Worker
+        run: wrangler deploy 2>&1 | tee "$RUNNER_TEMP/deploy.log"
+
+      # Secrets go in after the first deploy — the Worker has to exist to hold them. Written to a
+      # temp file that never leaves the runner, and removed straight after.
+      - name: Set the Worker's secrets
+        run: |
+          f="$RUNNER_TEMP/secrets.json"
+          node -e 'console.log(JSON.stringify({ WASENDER_API_KEY: process.env.WASENDER_API_KEY, DASHBOARD_PASSWORD: process.env.DASHBOARD_PASSWORD }))' > "$f"
+          wrangler secret bulk "$f"
+          rm -f "$f"
+
+      - name: Done
+        run: |
+          url=$(grep -o 'https://[A-Za-z0-9.-]*\.workers\.dev' "$RUNNER_TEMP/deploy.log" | head -1)
+          echo "### ✅ Deployed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Dashboard: ${url:-see the Deploy step log}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Open it, log in, then ⚙️ Setup shows the webhook URL to paste into WaSender." >> $GITHUB_STEP_SUMMARY

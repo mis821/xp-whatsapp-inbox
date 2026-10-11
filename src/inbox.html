@@ -1,0 +1,1019 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WhatsApp Inbox</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #fff; --ink: #1a1a1a; --sub: #6b7280; --line: #e3e5e9; --soft: #f1f3f5;
+    --brand: #1e3a8a; --blue: #2563eb; --amber: #d97706; --red: #dc2626; --green: #16a34a; --slate: #475569;
+    --tag-bg: #fffbeb; --tag-line: #f59e0b; --new-bg: #eff6ff; --me-bg: #f0fdf4; --mark: #fde68a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111214; --card: #1b1c1f; --ink: #e8e8ea; --sub: #9ca3af; --line: #2d2f34; --soft: #24262a;
+      --brand: #3b5bdb; --tag-bg: #2a2210; --tag-line: #d97706; --new-bg: #14213a; --me-bg: #10241a; --mark: #6b5310;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; margin: 0;
+         background: var(--bg); color: var(--ink); font-size: 14px; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 12px 16px 60px; }
+
+  header.top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 4px 0 12px; }
+  header.top h1 { font-size: 18px; margin: 0; }
+  header.top .who { font-size: 12px; color: var(--sub); font-weight: 600; }
+  header.top .sp { flex: 1; }
+  header.top .upd { font-size: 12px; color: var(--sub); }
+  .btn { padding: 8px 12px; border: 1px solid var(--line); background: var(--card); border-radius: 8px; cursor: pointer;
+         font-size: 13px; font-weight: 600; white-space: nowrap; }
+  .btn:hover { border-color: #c7cbd1; }
+  .btn.pri { background: var(--brand); border-color: var(--brand); color: #fff; }
+  .btn.sm { padding: 5px 9px; font-size: 12px; }
+  .btn:disabled { opacity: .55; cursor: progress; }
+  select.days { padding: 7px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
+
+  .banner { border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; font-size: 13px; line-height: 1.45; }
+  .banner.red { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+  .banner.amber { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+  @media (prefers-color-scheme: dark) {
+    .banner.red { background: #2a1414; color: #fca5a5; border-color: #5b2121; }
+    .banner.amber { background: #2a2210; color: #fcd34d; border-color: #5b4a12; }
+  }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-bottom: 12px; }
+  .tile { border-radius: 10px; padding: 10px 12px; color: #fff; cursor: pointer; border: 0; text-align: left; }
+  .tile .n { font-size: 24px; font-weight: 800; display: block; line-height: 1.1; }
+  .tile .l { font-size: 12px; font-weight: 700; opacity: .95; }
+  .tile .s { font-size: 11px; opacity: .85; display: block; }
+  .t-pend { background: var(--amber); } .t-new { background: var(--blue); } .t-over { background: var(--red); }
+  .t-today { background: var(--brand); } .t-call { background: var(--slate); }
+  @media (max-width: 520px) {
+    .tiles { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .tile { padding: 8px 9px; } .tile .n { font-size: 20px; } .tile .l { font-size: 11px; } .tile .s { display: none; }
+  }
+
+  nav.views { display: flex; gap: 6px; margin-bottom: 12px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+  nav.views button { background: none; border: 0; border-bottom: 3px solid transparent; padding: 8px 10px 10px; cursor: pointer;
+                     font-weight: 700; color: var(--sub); white-space: nowrap; }
+  nav.views button.active { color: var(--ink); border-bottom-color: var(--brand); }
+  .badge { background: var(--red); color: #fff; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; margin-left: 4px; }
+  .badge:empty { display: none; }
+
+  .toolbar { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  .toolbar input[type=search] { flex: 1; min-width: 160px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
+  .chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 8px; }
+  .chip { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); font-size: 12px;
+          font-weight: 700; cursor: pointer; white-space: nowrap; color: var(--sub); }
+  .chip.active { background: var(--brand); border-color: var(--brand); color: #fff; }
+  .chip .c { opacity: .8; font-weight: 600; margin-left: 3px; }
+
+  .pbox { background: var(--tag-bg); border: 1px solid var(--tag-line); border-radius: 12px; padding: 10px 12px; margin-bottom: 12px; }
+  .pbox h3 { margin: 0 0 6px; font-size: 14px; }
+  .pi { padding: 8px 0; border-top: 1px dashed var(--tag-line); }
+  .pi:first-of-type { border-top: 0; }
+  .pi1 { display: flex; gap: 8px; align-items: baseline; }
+  .pi1 b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pi2 { margin: 3px 0 6px; line-height: 1.4; word-break: break-word; }
+  .pa { display: flex; gap: 6px; flex-wrap: wrap; }
+  .tm { font-size: 11px; color: var(--sub); white-space: nowrap; }
+  .who { font-weight: 700; }
+
+  .chat { background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: 10px; margin-bottom: 6px; }
+  .chat.is-new { border-left-color: var(--blue); }
+  .chat.is-pend { border-left-color: var(--tag-line); }
+  .chat-head { display: flex; gap: 10px; padding: 9px 10px; cursor: pointer; align-items: center; }
+  .av { width: 36px; height: 36px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center;
+        font-size: 13px; font-weight: 800; color: #fff; background: var(--slate); }
+  .av.Supplier { background: #0f766e; } .av.Internal { background: var(--brand); } .av.Personal { background: #7c3aed; }
+  .cm { flex: 1; min-width: 0; }
+  .r1, .r2 { display: flex; gap: 6px; align-items: center; }
+  .nm { flex: 1; min-width: 0; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pv { flex: 1; min-width: 0; color: var(--sub); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .is-new .pv { color: var(--ink); }
+  .r3 { font-size: 11px; color: var(--sub); margin-top: 2px; }
+  .r3 .cat { background: var(--soft); border-radius: 4px; padding: 0 5px; font-weight: 700; }
+  .b { font-size: 11px; font-weight: 800; border-radius: 999px; padding: 1px 7px; color: #fff; flex: none; }
+  .b-new { background: var(--blue); } .b-tag { background: var(--amber); }
+
+  .cb { border-top: 1px solid var(--line); padding: 8px 10px 10px; }
+  .more { font-size: 12px; color: var(--sub); text-align: center; padding: 2px 0 8px; }
+  .msg { padding: 6px 8px; border-radius: 8px; margin-bottom: 4px; background: var(--soft); }
+  .msg.me { background: var(--me-bg); margin-left: 24px; }
+  .msg.new { background: var(--new-bg); }
+  .msg.pend { background: var(--tag-bg); box-shadow: inset 3px 0 0 var(--tag-line); }
+  .mh { font-size: 12px; display: flex; gap: 6px; align-items: center; min-height: 22px; }
+  .mh b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .mh .mk { margin-left: auto; flex: none; padding: 2px 8px; }
+  .pt { font-size: 10px; font-weight: 800; color: var(--amber); text-transform: uppercase; }
+  .mt { margin-top: 2px; line-height: 1.45; word-break: break-word; }
+  mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 1px; }
+  .at { color: var(--blue); font-weight: 700; }
+  .cacts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+
+  .empty { text-align: center; color: var(--sub); padding: 28px 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-bottom: 12px; }
+  .card h3 { margin: 0 0 8px; font-size: 14px; }
+  label { display: block; font-size: 12px; font-weight: 700; color: var(--sub); margin: 8px 0 4px; }
+  textarea, input[type=text], input[type=date], .card select, .modal select { width: 100%; padding: 8px 9px; border: 1px solid var(--line);
+                                    border-radius: 8px; background: var(--card); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  @media (max-width: 520px) { .grid2 { grid-template-columns: 1fr; } }
+  .due { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .due input { width: auto; flex: 1; min-width: 140px; }
+  .hint { font-size: 12px; color: var(--sub); line-height: 1.5; margin: 8px 0 0; }
+  .hint code { background: var(--soft); padding: 1px 5px; border-radius: 4px; }
+
+  .sec { margin: 14px 0 6px; font-size: 13px; font-weight: 800; display: flex; gap: 6px; align-items: center; }
+  .sec.red { color: var(--red); }
+  .task { display: flex; gap: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; margin-bottom: 6px; }
+  .task.over { border-left: 4px solid var(--red); }
+  .task.done { opacity: .6; }
+  .task.done .tt { text-decoration: line-through; }
+  .task input[type=checkbox] { width: 20px; height: 20px; margin-top: 2px; flex: none; cursor: pointer; }
+  .tb { flex: 1; min-width: 0; }
+  .tt { font-weight: 700; line-height: 1.4; word-break: break-word; }
+  .tmeta { font-size: 12px; color: var(--sub); margin-top: 3px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .pill { font-size: 11px; font-weight: 800; border-radius: 4px; padding: 0 6px; background: var(--soft); color: var(--ink); }
+  .pill.Payment { background: #dcfce7; color: #166534; } .pill.Material { background: #e0f2fe; color: #075985; }
+  .pill.Reply { background: #fef3c7; color: #92400e; }
+  @media (prefers-color-scheme: dark) {
+    .pill.Payment { background: #14321f; color: #86efac; } .pill.Material { background: #0c2a3a; color: #7dd3fc; }
+    .pill.Reply { background: #3a2c0c; color: #fcd34d; }
+  }
+  .lateby { color: var(--red); font-weight: 800; }
+  .tq { font-size: 12px; color: var(--sub); margin-top: 4px; border-left: 3px solid var(--line); padding-left: 6px; word-break: break-word; }
+  .ta { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+  details summary { cursor: pointer; font-size: 13px; font-weight: 700; color: var(--sub); margin: 10px 0 6px; }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
+  .stat { background: var(--soft); border-radius: 10px; padding: 8px 10px; }
+  .stat b { display: block; font-size: 20px; }
+  .stat span { font-size: 12px; color: var(--sub); font-weight: 700; }
+  .rl { display: flex; gap: 8px; padding: 7px 0; border-top: 1px solid var(--line); align-items: baseline; }
+  .rl:first-child { border-top: 0; }
+  .rl .x { flex: 1; min-width: 0; word-break: break-word; }
+
+  .modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: flex-end; justify-content: center; z-index: 50; }
+  .modal[hidden] { display: none; }
+  .sheet { background: var(--card); width: 100%; max-width: 560px; max-height: 92vh; overflow: auto; border-radius: 14px 14px 0 0; padding: 14px 16px 16px; }
+  @media (min-width: 600px) { .modal { align-items: center; } .sheet { border-radius: 14px; } }
+  .sheet h2 { font-size: 16px; margin: 0 0 4px; }
+  .sheet .foot { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+  .quote { font-size: 12px; color: var(--sub); background: var(--soft); border-radius: 8px; padding: 6px 8px; margin-top: 10px; word-break: break-word; }
+  .err { color: var(--red); font-size: 13px; margin-top: 8px; }
+
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #1a1a1a; color: #fff; padding: 9px 16px;
+           border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 60; max-width: 90vw; text-align: center; }
+  .toast.show { opacity: 1; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>📥 WhatsApp Inbox</h1>
+    <span class="who" id="who"></span>
+    <span class="sp"></span>
+    <span class="upd" id="upd"></span>
+    <select class="days" id="days" title="Kitne din ke messages">
+      <option value="1">Aaj</option>
+      <option value="2">Aaj + kal</option>
+      <option value="3">3 din</option>
+      <option value="7">7 din</option>
+    </select>
+    <button class="btn" id="reload">⟳ Refresh</button>
+  </header>
+
+  <div id="banner"></div>
+  <div class="tiles" id="tiles"></div>
+
+  <nav class="views">
+    <button data-view="inbox" class="active">💬 Inbox</button>
+    <button data-view="kaam">✅ Mere Kaam<span class="badge" id="b-kaam"></span></button>
+    <button data-view="review">🌆 Shaam ka hisaab</button>
+    <button data-view="setup">⚙️ Setup</button>
+  </nav>
+
+  <!-- ============ INBOX ============ -->
+  <section id="v-inbox">
+    <div id="pend"></div>
+    <div class="toolbar">
+      <input type="search" id="q" placeholder="Group, naam ya message dhundho…">
+      <button class="btn" id="allSeen" title="Jo chats khule nahi hain unhe bhi dekha hua maan lo (tag wale nahi)">✓ Sab dekh liya</button>
+    </div>
+    <div class="chips" id="chips"></div>
+    <div id="chatList"><div class="empty">Load ho raha hai…</div></div>
+  </section>
+
+  <!-- ============ MERE KAAM ============ -->
+  <section id="v-kaam" hidden>
+    <div class="card">
+      <h3>➕ Naya kaam / commitment</h3>
+      <div id="quickForm"></div>
+      <div class="foot" style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+        <button class="btn pri" id="quickSave">Save karo</button>
+      </div>
+      <p class="hint">Meeting mein ho aur phone pe kuch commit kar diya? WhatsApp pe apne aap ko (<b>Message yourself</b>) likh do:<br>
+        <code>#kaam Jyoti Timbers: payment kal ho jayega</code> — ye yahan apne aap aa jayega (kal = due kal, "payment" = Accounts).</p>
+    </div>
+    <div class="chips" id="teamChips"></div>
+    <div id="taskList"></div>
+  </section>
+
+  <!-- ============ REVIEW ============ -->
+  <section id="v-review" hidden>
+    <div id="review"></div>
+  </section>
+
+  <!-- ============ SETUP ============ -->
+  <section id="v-setup" hidden>
+    <div id="setup"><div class="empty">Load ho raha hai…</div></div>
+  </section>
+</div>
+
+<datalist id="partyList"></datalist>
+<div class="modal" id="modal" hidden><div class="sheet" id="sheet"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+  var D = null;                 // last payload from getWaInbox
+  var VIEW = 'inbox', FILTER = 'all', TEAM = 'all', Q = '';
+  var OPEN = {};                // jid -> expanded
+  var CHAT = {};                // jid -> {msgs, more} once opened
+  var HITS = null;              // chats whose messages match the search (from the server)
+  var DAYS = Number(store('days')) || 2;
+  var KW_RE = null, LOADING = false, MODAL_SAVE = null;
+
+  // ---------- small helpers ----------
+  function store(k, v) {
+    try {
+      if (v === undefined) return localStorage.getItem('wa.' + k);
+      localStorage.setItem('wa.' + k, v);
+    } catch (e) { return null; }
+  }
+  function $(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function pad(n) { return ('0' + n).slice(-2); }
+  function dayKey(ms) { var d = new Date(ms); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+  function nowMs() { return Date.now(); }
+  function todayKey() { return dayKey(nowMs()); }
+  function plusDays(n) { var d = new Date(); d.setDate(d.getDate() + n); return dayKey(d.getTime()); }
+  function fmtTime(ms) {
+    if (!ms) return '';
+    var d = new Date(ms), k = dayKey(ms), hm = pad(d.getHours()) + ':' + pad(d.getMinutes());
+    if (k === todayKey()) return hm;
+    if (k === dayKey(nowMs() - 86400000)) return 'Kal ' + hm;
+    return pad(d.getDate()) + '-' + pad(d.getMonth() + 1) + ' ' + hm;
+  }
+  function daysBetween(a, b) { return Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000); }
+  function fmtDue(key) {
+    if (!key) return 'Aaj';
+    var t = todayKey(), diff = daysBetween(t, key);
+    if (diff === 0) return 'Aaj';
+    if (diff === 1) return 'Kal';
+    if (diff === 2) return 'Parso';
+    var label = key.slice(8, 10) + '-' + key.slice(5, 7);
+    if (diff < 0) return label + ' <span class="lateby">(' + (-diff) + ' din late)</span>';
+    return label;
+  }
+  function toast(msg) {
+    var t = $('toast'); t.textContent = msg; t.classList.add('show');
+    clearTimeout(toast._t); toast._t = setTimeout(function () { t.classList.remove('show'); }, 2600);
+  }
+  function chatBy(jid) { for (var i = 0; D && i < D.chats.length; i++) if (D.chats[i].jid === jid) return D.chats[i]; return null; }
+  function taskBy(id) { for (var i = 0; D && i < D.tasks.length; i++) if (D.tasks[i].id === id) return D.tasks[i]; return null; }
+  function shortParty(name) {
+    return String(name || '').replace(/^\s*(?:XPP|XXP|XP)\s*(?:\||[lI\-](?=\s))?\s*/i, '').trim() || String(name || '');
+  }
+  function guessType(text) {
+    var low = ' ' + String(text || '').toLowerCase() + ' ';
+    if (/\b(payment|pay|paisa|paise|neft|rtgs|cheque|bill|advance|outstanding|ledger)\b/.test(low)) return 'Payment';
+    if (/\b(material|maal|dispatch|delivery|gaadi|vehicle|stock|sample)\b/.test(low)) return 'Material';
+    return 'Follow-up';
+  }
+  function guessTeam(type) { return type === 'Payment' ? 'Accounts' : type === 'Material' ? 'Store' : 'Khud'; }
+
+  // The one door to the server: POST /api/rpc {fn, args} -> {data} or {error}.
+  function rpc(fn, args, ok, fail) {
+    fetch('/api/rpc', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ fn: fn, args: args || [] }) })
+      .then(function (res) {
+        if (res.status === 401) { location.reload(); throw new Error('Login dobara karna hoga'); }
+        return res.json();
+      })
+      .then(function (r) { if (r.error) throw new Error(r.error); ok && ok(r.data); })
+      .catch(function (e) { fail && fail(e); });
+  }
+  // Every action goes through here so a failure is shown, not swallowed.
+  function call(fn, args, ok, btn) {
+    if (btn) btn.disabled = true;
+    rpc(fn, args, function (res) {
+      if (btn) btn.disabled = false;
+      try { ok && ok(res); } catch (e) { showError(e); }
+    }, function (err) {
+      if (btn) btn.disabled = false;
+      showError(err);
+    });
+  }
+  function showError(err) {
+    var m = (err && err.message) ? err.message : String(err);
+    var box = $('modalErr');
+    if (box && !$('modal').hidden) { box.textContent = m; return; }
+    $('banner').innerHTML = '<div class="banner red">⚠️ ' + esc(m) + '</div>';
+  }
+
+  // ---------- text rendering ----------
+  var TYPE_ICON = { image: '🖼️ ', video: '🎬 ', audio: '🎤 ', voice: '🎤 ', document: '📄 ', sticker: '💟 ',
+                    location: '📍 ', contact: '👤 ', poll: '📊 ', call: '📞 ', 'video call': '📹 ' };
+  function hl(text) {
+    var h = esc(text).replace(/\n/g, '<br>');
+    if (KW_RE) h = h.replace(KW_RE, '<mark>$1</mark>');
+    return h.replace(/@(Aap\b|\d{6,})/g, '<span class="at">@$1</span>');
+  }
+  function msgText(m) {
+    var icon = TYPE_ICON[m.type] || '';
+    if (m.call) return icon + (m.text ? esc(m.text) : 'Call aaya');
+    if (!m.text) return icon + '<i>(' + esc(m.type || 'message') + ')</i>';
+    return icon + hl(m.text);
+  }
+  function snippet(m) {
+    if (!m) return '';
+    var icon = TYPE_ICON[m.type] || '';
+    return icon + (m.text ? m.text.replace(/\s+/g, ' ').slice(0, 90) : (m.call ? 'Call' : m.type || ''));
+  }
+  function initials(c) {
+    if (c.kind === 'personal') return '👤';
+    var s = shortParty(c.name).replace(/[^A-Za-z0-9 ]/g, ' ').trim().split(/\s+/);
+    return esc(((s[0] || '?').charAt(0) + (s[1] ? s[1].charAt(0) : '')).toUpperCase());
+  }
+
+  // ---------- load ----------
+  function load(quiet) {
+    if (LOADING) return;
+    LOADING = true;
+    if (!quiet) $('upd').textContent = 'Load ho raha hai…';
+    rpc('getWaInbox', [DAYS], function (d) {
+      LOADING = false;
+      try { onData(d); } catch (e) { showError(e); }
+    }, function (err) {
+      LOADING = false;
+      $('upd').textContent = '';
+      showError(err);
+      if (!D) $('chatList').innerHTML = '<div class="empty">Data nahi aaya.</div>';
+    });
+  }
+
+  function onData(d) {
+    D = d;
+    KW_RE = d.keywords && d.keywords.length
+      ? new RegExp('\\b(' + d.keywords.map(function (k) { return k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }).join('|') + ')\\b', 'gi')
+      : null;
+    $('who').textContent = d.me && d.me.name ? '· ' + d.me.name : '';
+    $('upd').textContent = 'Updated ' + fmtTime(d.now);
+    if (!$('quickForm').innerHTML) initQuickForm();
+    fillPartyList();
+    // Open chats are re-fetched so their messages match the fresh counts.
+    CHAT = {};
+    Object.keys(OPEN).forEach(function (j) {
+      if (OPEN[j]) rpc('getWaChat', [j, DAYS], function (res) { CHAT[j] = res; var c = chatBy(j); if (c && OPEN[j]) rerenderChat(c); });
+    });
+    renderAll();
+  }
+
+  function renderAll() {
+    renderBanner();
+    renderTiles();
+    renderInbox();
+    renderKaam();
+    renderReview();
+  }
+
+  function renderBanner() {
+    var h = '', d = D;
+    if (d.status && d.status !== 'connected') {
+      h += '<div class="banner red">⚠️ WaSender session: <b>' + esc(d.status) + '</b> — naye messages nahi aa rahe. ' +
+           'WaSender dashboard mein session dobara connect kijiye.</div>';
+    }
+    if (!d.lastArrival) {
+      h += '<div class="banner amber">Abhi tak ek bhi message nahi aaya. Webhook setup check kijiye ' +
+           '(<a href="#" data-act="view" data-v="setup">⚙️ Setup</a> mein webhook URL dekhiye).</div>';
+    } else {
+      var hrs = (d.now - d.lastArrival) / 3600000, hr = new Date(d.now).getHours();
+      if (hrs > 2 && hr >= 10 && hr <= 20) {
+        h += '<div class="banner amber">Pichla message ' + Math.floor(hrs) + ' ghante pehle aaya tha — ' +
+             'agar groups mein baat chal rahi hai to webhook / WaSender session check kijiye.</div>';
+      }
+    }
+    $('banner').innerHTML = h;
+  }
+
+  function counts() {
+    var c = { pend: 0, unseen: 0, unseenChats: 0, calls: (D.callsToday || []).length, over: 0, today: 0 };
+    var t = todayKey(), dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
+    D.chats.forEach(function (x) {
+      if (x.pending) c.pend++;
+      if (!x.muted && x.unseen) { c.unseen += x.unseen; c.unseenChats++; }
+    });
+    D.tasks.forEach(function (k) {
+      if (k.status !== 'Open') return;
+      if (k.due && k.due < t) c.over++;
+      else if (!k.due || k.due === t) c.today++;
+    });
+    return c;
+  }
+
+  function renderTiles() {
+    var c = counts();
+    $('tiles').innerHTML =
+      '<button class="tile t-pend" data-act="filter" data-f="reply"><span class="n">' + c.pend + '</span><span class="l">🔔 Reply baaki</span><span class="s">tag + direct</span></button>' +
+      '<button class="tile t-new" data-act="filter" data-f="unseen"><span class="n">' + c.unseen + '</span><span class="l">💬 Bina dekhe</span><span class="s">' + c.unseenChats + ' chats</span></button>' +
+      '<button class="tile t-over" data-act="view" data-v="kaam"><span class="n">' + c.over + '</span><span class="l">⏰ Overdue kaam</span><span class="s">time nikal gaya</span></button>' +
+      '<button class="tile t-today" data-act="view" data-v="kaam"><span class="n">' + c.today + '</span><span class="l">📌 Aaj ke kaam</span><span class="s">khule</span></button>' +
+      '<button class="tile t-call" data-act="filter" data-f="calls"><span class="n">' + c.calls + '</span><span class="l">📞 Aaj ke calls</span><span class="s">WhatsApp calls</span></button>';
+    $('b-kaam').textContent = (c.over + c.today) || '';
+  }
+
+  // ---------- INBOX ----------
+  function passes(c) {
+    if (FILTER === 'muted') { if (!c.muted) return false; }
+    else if (c.muted && !c.pending) return false;
+    if (FILTER === 'reply' && !c.pending) return false;
+    if (FILTER === 'unseen' && !c.unseen) return false;
+    if (FILTER === 'calls' && !c.calls) return false;
+    if (FILTER.indexOf('cat:') === 0 && c.cat !== FILTER.slice(4)) return false;
+    if (Q) {
+      var q = Q.toLowerCase();
+      var pv = c.preview ? (c.preview.who + ' ' + c.preview.text).toLowerCase() : '';
+      if (c.name.toLowerCase().indexOf(q) === -1 && pv.indexOf(q) === -1 && !(HITS && HITS[c.jid])) return false;
+    }
+    return true;
+  }
+  function rank(c) { return c.pending ? 0 : (c.unseen && !c.muted ? 1 : 2); }
+
+  function renderInbox() {
+    var chats = D.chats;
+    var cats = {}, catOrder = ['Supplier', 'Internal', 'Personal'];
+    chats.forEach(function (c) { if (!c.muted) cats[c.cat] = (cats[c.cat] || 0) + 1; });
+    Object.keys(cats).sort().forEach(function (k) { if (catOrder.indexOf(k) === -1) catOrder.push(k); });
+    var muted = chats.filter(function (c) { return c.muted; }).length;
+    var chips = [['all', 'Sab'], ['reply', '🔔 Reply baaki'], ['unseen', '💬 Bina dekhe'], ['calls', '📞 Calls']];
+    catOrder.forEach(function (k) { if (cats[k]) chips.push(['cat:' + k, k, cats[k]]); });
+    if (muted) chips.push(['muted', '🔕 Muted', muted]);
+    $('chips').innerHTML = chips.map(function (ch) {
+      return '<button class="chip' + (FILTER === ch[0] ? ' active' : '') + '" data-act="filter" data-f="' + esc(ch[0]) + '">' +
+             esc(ch[1]) + (ch[2] ? '<span class="c">' + ch[2] + '</span>' : '') + '</button>';
+    }).join('');
+
+    // Pinned: everything that tagged you or came to you directly, until you reply or tick it off.
+    var pend = chats.filter(function (c) { return c.pending; })
+      .sort(function (a, b) { return b.lastPending.t - a.lastPending.t; });
+    if (pend.length && (FILTER === 'all' || FILTER === 'reply') && !Q) {
+      var cap = FILTER === 'reply' ? pend.length : 8;
+      $('pend').innerHTML = '<div class="pbox"><h3>🔔 Aapko tag kiya / direct message — reply baaki (' + pend.length + ')</h3>' +
+        pend.slice(0, cap).map(pendHtml).join('') +
+        (pend.length > cap ? '<div class="pi"><button class="btn sm" data-act="filter" data-f="reply">Sab ' + pend.length + ' dikhao</button></div>' : '') +
+        '</div>';
+    } else {
+      $('pend').innerHTML = '';
+    }
+
+    var list = chats.filter(passes).sort(function (a, b) { return rank(a) - rank(b) || b.lastT - a.lastT; });
+    $('chatList').innerHTML = list.length ? list.map(chatHtml).join('')
+      : '<div class="empty">' + (D.chats.length ? 'Is filter mein kuch nahi.' : 'Is samay ke beech koi message nahi aaya.') + '</div>';
+  }
+
+  function pendHtml(c) {
+    var p = c.lastPending;
+    return '<div class="pi"><div class="pi1"><b>' + esc(c.name) + '</b><span class="tm">' + fmtTime(p.t) + '</span></div>' +
+      '<div class="pi2"><span class="who">' + esc(p.who) + ':</span> ' + (p.call ? '📞 Call aaya' : hl(p.text)) +
+      (c.pending > 1 ? ' <span class="b b-tag">+' + (c.pending - 1) + '</span>' : '') + '</div>' +
+      '<div class="pa"><button class="btn sm" data-act="open" data-jid="' + esc(c.jid) + '">Kholo</button>' +
+      '<button class="btn sm" data-act="kaam-msg" data-jid="' + esc(c.jid) + '" data-id="' + esc(p.id) + '">+ Kaam</button>' +
+      '<button class="btn sm" data-act="clear" data-jid="' + esc(c.jid) + '">✓ Ho gaya</button></div></div>';
+  }
+
+  function chatHtml(c) {
+    var open = !!OPEN[c.jid];
+    var last = c.preview;
+    var prev = last ? (last.me ? 'Aap: ' : (c.kind === 'group' ? last.who + ': ' : '')) + snippet(last) : '';
+    var badges = '';
+    if (c.pending) badges += '<span class="b b-tag">' + (c.kind === 'group' ? '@' : '🔔') + c.pending + '</span>';
+    if (c.unseen && !c.muted) badges += '<span class="b b-new">' + c.unseen + '</span>';
+    var cls = 'chat' + (c.pending ? ' is-pend' : '') + (c.unseen && !c.muted ? ' is-new' : '');
+    return '<div class="' + cls + '" id="c-' + domId(c.jid) + '">' +
+      '<div class="chat-head" data-act="toggle" data-jid="' + esc(c.jid) + '">' +
+        '<div class="av ' + esc(c.cat) + '">' + initials(c) + '</div>' +
+        '<div class="cm"><div class="r1"><span class="nm">' + esc(c.name) + '</span><span class="tm">' + fmtTime(c.lastT) + '</span></div>' +
+        '<div class="r2"><span class="pv">' + esc(prev) + '</span>' + badges + '</div>' +
+        '<div class="r3"><span class="cat">' + esc(c.cat) + '</span>' + (c.muted ? ' · 🔕 muted' : '') +
+          ' · ' + c.total + ' msg' + (c.lastOut ? ' · ↩ aapne ' + fmtTime(c.lastOut) + ' reply kiya' : '') + '</div>' +
+        '</div></div>' +
+      (open ? chatBody(c) : '') + '</div>';
+  }
+
+  function chatBody(c) {
+    var j = esc(c.jid);
+    var h = '<div class="cb">';
+    var loaded = CHAT[c.jid];
+    if (!loaded) return h + '<div class="more">Messages aa rahe hain…</div></div>';
+    if (loaded.more) h += '<div class="more">+' + loaded.more + ' purane messages — WhatsApp pe dekhiye</div>';
+    loaded.msgs.forEach(function (m) {
+      h += '<div class="msg' + (m.me ? ' me' : '') + (m.unseen ? ' new' : '') + (m.pending ? ' pend' : '') + '">' +
+        '<div class="mh"><b>' + esc(m.who) + '</b><span class="tm">' + fmtTime(m.t) + '</span>' +
+        (m.pending ? '<span class="pt">' + (m.call ? 'call' : m.tag ? '@ aapko tag' : 'reply baaki') + '</span>' : '') +
+        (m.me ? '' : '<button class="btn sm mk" data-act="kaam-msg" data-jid="' + j + '" data-id="' + esc(m.id) + '">+ Kaam</button>') +
+        '</div><div class="mt">' + msgText(m) + '</div></div>';
+    });
+    h += '<div class="cacts">' +
+      (c.pending ? '<button class="btn sm pri" data-act="clear" data-jid="' + j + '">✓ Tag/direct ho gaya</button>' : '') +
+      '<button class="btn sm" data-act="kaam-chat" data-jid="' + j + '">+ Kaam</button>' +
+      '<button class="btn sm" data-act="mute" data-jid="' + j + '">' + (c.muted ? '🔔 Unmute' : '🔕 Mute') + '</button>' +
+      '<button class="btn sm" data-act="cat" data-jid="' + j + '">🏷 ' + esc(c.cat) + '</button>' +
+      '<button class="btn sm" data-act="toggle" data-jid="' + j + '">Band karo</button>' +
+      '</div></div>';
+    return h;
+  }
+
+  function domId(jid) { return String(jid).replace(/[^A-Za-z0-9]/g, '_'); }
+  function rerenderChat(c) {
+    var el = $('c-' + domId(c.jid));
+    if (el) el.outerHTML = chatHtml(c); else renderInbox();
+  }
+
+  // Opening a chat is looking at it — the same rule WhatsApp uses. The highlight stays until the
+  // next refresh so you can still see which messages were the new ones.
+  function toggleChat(jid) {
+    var c = chatBy(jid);
+    if (!c) return;
+    OPEN[jid] = !OPEN[jid];
+    if (OPEN[jid]) {
+      rpc('getWaChat', [jid, DAYS], function (res) { CHAT[jid] = res; if (OPEN[jid]) rerenderChat(c); },
+          function (e) { CHAT[jid] = { msgs: [], more: 0 }; showError(e); rerenderChat(c); });
+      if (c.unseen) {
+        c.unseen = 0;
+        call('markWaChatsSeen', [[{ jid: c.jid, t: c.lastT }]]);
+        renderTiles();
+      }
+    }
+    rerenderChat(c);
+  }
+
+  function clearTags(jid) {
+    var c = chatBy(jid);
+    if (!c) return;
+    c.pending = 0; c.lastPending = null; c.unseen = 0;
+    if (CHAT[c.jid]) CHAT[c.jid].msgs.forEach(function (m) { m.pending = false; });
+    call('clearWaChatTags', [c.jid, c.lastT, c.kind === 'personal' ? c.name : ''], function () { toast('Ho gaya ✓'); });
+    renderTiles(); renderInbox(); renderReview();
+  }
+
+  function toggleMute(jid) {
+    var c = chatBy(jid);
+    if (!c) return;
+    c.muted = !c.muted;
+    call('setWaChatMuted', [c.jid, c.muted, c.kind === 'personal' ? c.name : ''],
+         function () { toast(c.muted ? '🔕 Muted — tag karega to phir bhi dikhega' : '🔔 Unmuted'); });
+    renderTiles(); renderInbox();
+  }
+
+  function allSeen(btn) {
+    var items = D.chats.filter(function (c) { return c.unseen; })
+      .map(function (c) { return { jid: c.jid, t: c.lastT, name: c.kind === 'personal' ? c.name : '' }; });
+    if (!items.length) { toast('Sab pehle se dekha hua hai'); return; }
+    if (!confirm(items.length + ' chats ke messages dekhe hue maan lein? (Tag / direct wale "Reply baaki" mein rahenge.)')) return;
+    D.chats.forEach(function (c) { c.unseen = 0; });
+    Object.keys(CHAT).forEach(function (j) { CHAT[j].msgs.forEach(function (m) { m.unseen = false; }); });
+    call('markWaChatsSeen', [items], function () { toast('✓ ' + items.length + ' chats dekh liye'); }, btn);
+    renderTiles(); renderInbox();
+  }
+
+  // ---------- task form ----------
+  function opts(list, sel) {
+    return list.map(function (x) { return '<option' + (x === sel ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('');
+  }
+  function taskFormHtml(p, v) {
+    return '<label>Kya karna hai / kya commit kiya?</label>' +
+      '<textarea id="' + p + '-kaam" rows="3" placeholder="jaise: Kal tak payment karwana hai">' + esc(v.kaam || '') + '</textarea>' +
+      '<div class="grid2"><div><label>Party / supplier</label><input type="text" id="' + p + '-party" list="partyList" value="' + esc(v.party || '') + '" placeholder="kiske saath"></div>' +
+      '<div><label>Type</label><select id="' + p + '-type" data-act="type-change" data-p="' + p + '">' + opts(D.types, v.type || 'Follow-up') + '</select></div></div>' +
+      '<label>Kab tak</label><div class="due">' +
+        '<button type="button" class="btn sm" data-act="due" data-p="' + p + '" data-n="0">Aaj</button>' +
+        '<button type="button" class="btn sm" data-act="due" data-p="' + p + '" data-n="1">Kal</button>' +
+        '<button type="button" class="btn sm" data-act="due" data-p="' + p + '" data-n="2">Parso</button>' +
+        '<input type="date" id="' + p + '-due" value="' + esc(v.due || todayKey()) + '"></div>' +
+      '<div class="grid2"><div><label>Kiska kaam</label><select id="' + p + '-team">' + opts(D.teams, v.team || 'Khud') + '</select></div>' +
+      '<div><label>Note (optional)</label><input type="text" id="' + p + '-note" value="' + esc(v.note || '') + '"></div></div>';
+  }
+  function readTaskForm(p) {
+    return {
+      kaam: $(p + '-kaam').value.trim(), party: $(p + '-party').value.trim(), type: $(p + '-type').value,
+      due: $(p + '-due').value, team: $(p + '-team').value, note: $(p + '-note').value.trim()
+    };
+  }
+  function initQuickForm() {
+    $('quickForm').innerHTML = taskFormHtml('q', { due: plusDays(1) });
+  }
+  function fillPartyList() {
+    var seen = {}, names = [];
+    D.chats.concat(D.groups.map(function (g) { return { name: g.name, kind: 'group' }; })).forEach(function (c) {
+      var n = c.kind === 'group' ? shortParty(c.name) : c.name;
+      if (n && !seen[n]) { seen[n] = 1; names.push(n); }
+    });
+    D.tasks.forEach(function (t) { if (t.party && !seen[t.party]) { seen[t.party] = 1; names.push(t.party); } });
+    $('partyList').innerHTML = names.sort().map(function (n) { return '<option value="' + esc(n) + '"></option>'; }).join('');
+  }
+
+  // ---------- modal ----------
+  function openModal(title, body, saveLabel, onSave) {
+    MODAL_SAVE = onSave;
+    $('sheet').innerHTML = '<h2>' + esc(title) + '</h2>' + body + '<div class="err" id="modalErr"></div>' +
+      '<div class="foot"><button class="btn" data-act="modal-close">Cancel</button>' +
+      (saveLabel ? '<button class="btn pri" id="modalSave" data-act="modal-save">' + esc(saveLabel) + '</button>' : '') + '</div>';
+    $('modal').hidden = false;
+  }
+  function closeModal() { $('modal').hidden = true; MODAL_SAVE = null; }
+
+  function kaamFromMsg(jid, id) {
+    var c = chatBy(jid);
+    if (!c) return;
+    var m = null;
+    if (CHAT[jid]) CHAT[jid].msgs.forEach(function (x) { if (x.id === id) m = x; });
+    if (!m && c.lastPending && c.lastPending.id === id) m = c.lastPending;
+    if (!m && c.preview && c.preview.id === id) m = c.preview;
+    if (!m) (D.callsToday || []).forEach(function (x) { if (x.id === id) m = { id: x.id, t: x.t, call: true, who: c.name, text: '' }; });
+    if (m && !id) m = null;
+    var text = m ? (m.call ? 'Call aaya tha — wapas baat karni hai' : m.text) : '';
+    var type = guessType(text);
+    var v = { kaam: m && !m.call ? text.slice(0, 300) : text, party: c.kind === 'group' ? shortParty(c.name) : c.name,
+              type: type, team: guessTeam(type), due: plusDays(1) };
+    var quote = m ? '<div class="quote">💬 <b>' + esc(c.name) + '</b> — ' + esc(m.who) + ': ' + esc((m.text || (m.call ? 'call' : '')).slice(0, 400)) + '</div>' : '';
+    openModal('➕ Kaam banao', taskFormHtml('m', v) + quote, 'Save karo', function (btn) {
+      var t = readTaskForm('m');
+      if (!t.kaam) { $('modalErr').textContent = 'Kya karna hai, likhiye.'; return; }
+      t.chat = c.jid; t.msgId = m ? m.id : ''; t.message = m ? (m.who + ': ' + (m.text || 'call')) : '';
+      call('addWaTask', [t], function (tasks) { D.tasks = tasks; closeModal(); toast('Kaam save ho gaya ✓'); renderAll(); }, btn);
+    });
+  }
+  function kaamFromChat(jid) {
+    var c = chatBy(jid);
+    if (!c) return;
+    openModal('➕ Kaam banao — ' + c.name, taskFormHtml('m', { party: c.kind === 'group' ? shortParty(c.name) : c.name, due: plusDays(1) }),
+      'Save karo', function (btn) {
+        var t = readTaskForm('m');
+        if (!t.kaam) { $('modalErr').textContent = 'Kya karna hai, likhiye.'; return; }
+        t.chat = c.jid;
+        call('addWaTask', [t], function (tasks) { D.tasks = tasks; closeModal(); toast('Kaam save ho gaya ✓'); renderAll(); }, btn);
+      });
+  }
+
+  function saveQuick(btn) {
+    var t = readTaskForm('q');
+    if (!t.kaam) { toast('Kya karna hai, likhiye'); $('q-kaam').focus(); return; }
+    call('addWaTask', [t], function (tasks) {
+      D.tasks = tasks;
+      initQuickForm();
+      toast('Kaam save ho gaya ✓');
+      renderAll();
+    }, btn);
+  }
+
+  function editTask(id) {
+    var t = taskBy(id);
+    if (!t) return;
+    openModal('✏️ Kaam badlo', taskFormHtml('m', t) +
+      (t.message ? '<div class="quote">💬 ' + esc(t.message.slice(0, 400)) + '</div>' : '') +
+      '<p class="hint"><button type="button" class="btn sm" data-act="cancel-task" data-id="' + esc(t.id) + '">🗑 Ye kaam hatao</button></p>',
+      'Save karo', function (btn) {
+        var v = readTaskForm('m');
+        if (!v.kaam) { $('modalErr').textContent = 'Kaam khaali nahi ho sakta.'; return; }
+        call('updateWaTask', [id, v], function (tasks) { D.tasks = tasks; closeModal(); toast('Save ✓'); renderAll(); }, btn);
+      });
+  }
+
+  function setTask(id, patch, msg) {
+    var t = taskBy(id);
+    if (t) {
+      Object.keys(patch).forEach(function (k) { t[k] = patch[k]; });
+      if (patch.status === 'Done') t.doneAt = nowMs();
+      renderAll();
+    }
+    call('updateWaTask', [id, patch], function (tasks) { D.tasks = tasks; renderAll(); if (msg) toast(msg); });
+  }
+
+  var TYPE_EMOJI = { Payment: '💰', Material: '📦', 'Follow-up': '📞', Reply: '💬', Other: '📝' };
+  function openNotify(id) {
+    var t = taskBy(id);
+    if (!t) return;
+    var def = (D.teamGroups || {})[t.team] || '';
+    var dueTxt = t.due ? t.due.slice(8, 10) + '-' + t.due.slice(5, 7) + '-' + t.due.slice(0, 4) : '';
+    var text = (TYPE_EMOJI[t.type] || '📝') + ' *' + t.type + (t.party ? ' — ' + t.party : '') + '*\n' + t.kaam +
+               (dueTxt ? '\n📅 Kab tak: ' + dueTxt : '') + (t.note ? '\n📝 ' + t.note : '');
+    openModal('📤 Team ko WhatsApp', '<label>Group dhundho</label><input type="text" id="n-find" placeholder="naam likhiye…" data-act="noop">' +
+      '<label>Kis group mein bhejna hai</label><select id="n-group">' + groupOptions('', def) + '</select>' +
+      '<label>Message</label><textarea id="n-text" rows="6">' + esc(text) + '</textarea>' +
+      '<p class="hint">Ye message office number se us group mein jayega.' +
+      (t.team && t.team !== 'Khud' ? ' Agli baar <b>' + esc(t.team) + '</b> ke liye yahi group pehle se chuna rahega.' : '') + '</p>',
+      'Bhejo', function (btn) {
+        var jid = $('n-group').value, msg = $('n-text').value.trim();
+        if (!jid) { $('modalErr').textContent = 'Group chuniye.'; return; }
+        if (!msg) { $('modalErr').textContent = 'Message khaali hai.'; return; }
+        call('sendWaTaskToTeam', [id, jid, msg, t.team], function (tasks) {
+          D.tasks = tasks;
+          if (t.team && t.team !== 'Khud') D.teamGroups[t.team] = jid;
+          closeModal(); toast('📤 Bhej diya'); renderAll();
+        }, btn);
+      });
+  }
+  function groupOptions(find, sel) {
+    var f = String(find || '').toLowerCase();
+    var list = D.groups.filter(function (g) { return !f || g.name.toLowerCase().indexOf(f) !== -1 || g.jid === sel; });
+    return '<option value="">— group chuniye —</option>' + list.map(function (g) {
+      return '<option value="' + esc(g.jid) + '"' + (g.jid === sel ? ' selected' : '') + '>' + esc(g.name) +
+             (g.cat && g.cat !== 'Internal' ? ' · ' + esc(g.cat) : '') + '</option>';
+    }).join('');
+  }
+
+  // ---------- MERE KAAM ----------
+  function taskHtml(t) {
+    var today = todayKey(), over = t.status === 'Open' && t.due && t.due < today;
+    var src = t.chat ? (chatBy(t.chat) || {}).name || '' : '';
+    return '<div class="task' + (over ? ' over' : '') + (t.status === 'Done' ? ' done' : '') + '">' +
+      '<input type="checkbox" data-act="done" data-id="' + esc(t.id) + '"' + (t.status === 'Done' ? ' checked' : '') + ' title="Ho gaya">' +
+      '<div class="tb"><div class="tt">' + (t.party ? esc(t.party) + ' — ' : '') + esc(t.kaam) + '</div>' +
+      '<div class="tmeta"><span class="pill ' + esc(t.type) + '">' + esc(t.type) + '</span>' +
+        (t.team && t.team !== 'Khud' ? '<span class="pill">' + esc(t.team) + '</span>' : '') +
+        '<span>📅 ' + (t.status === 'Done' ? 'Poora ' + fmtTime(t.doneAt) : fmtDue(t.due)) + '</span>' +
+        (t.source === 'WhatsApp #kaam' ? '<span>📲 #kaam</span>' : '') +
+        (src ? '<span>💬 ' + esc(src) + '</span>' : '') +
+        (t.notified ? '<span>📤 ' + esc(t.notified) + '</span>' : '') + '</div>' +
+      (t.note ? '<div class="tq">📝 ' + esc(t.note) + '</div>' : '') +
+      (t.message && t.source !== 'WhatsApp #kaam' ? '<div class="tq">' + esc(t.message.slice(0, 220)) + '</div>' : '') +
+      (t.status === 'Open' ? '<div class="ta">' +
+        '<button class="btn sm" data-act="notify" data-id="' + esc(t.id) + '">📤 Team ko bhejo</button>' +
+        (t.due !== plusDays(1) ? '<button class="btn sm" data-act="postpone" data-id="' + esc(t.id) + '">⏭ Kal pe</button>' : '') +
+        '<button class="btn sm" data-act="edit" data-id="' + esc(t.id) + '">✏️ Badlo</button></div>' : '') +
+      '</div></div>';
+  }
+
+  function sortTasks(a, b) { return (a.due || '').localeCompare(b.due || '') || a.created - b.created; }
+
+  function renderKaam() {
+    var teams = {};
+    D.tasks.forEach(function (t) { if (t.status === 'Open') teams[t.team || 'Khud'] = (teams[t.team || 'Khud'] || 0) + 1; });
+    var chips = [['all', 'Sab']].concat(D.teams.filter(function (k) { return teams[k]; }).map(function (k) { return [k, k, teams[k]]; }));
+    $('teamChips').innerHTML = chips.map(function (ch) {
+      return '<button class="chip' + (TEAM === ch[0] ? ' active' : '') + '" data-act="team" data-t="' + esc(ch[0]) + '">' +
+             esc(ch[1]) + (ch[2] ? '<span class="c">' + ch[2] + '</span>' : '') + '</button>';
+    }).join('');
+
+    var t0 = todayKey(), t1 = plusDays(1);
+    var mine = D.tasks.filter(function (t) { return TEAM === 'all' || (t.team || 'Khud') === TEAM; });
+    var open = mine.filter(function (t) { return t.status === 'Open'; }).sort(sortTasks);
+    var groups = [
+      ['⏰ Overdue', 'red', open.filter(function (t) { return t.due && t.due < t0; })],
+      ['📌 Aaj', '', open.filter(function (t) { return !t.due || t.due === t0; })],
+      ['🗓️ Kal', '', open.filter(function (t) { return t.due === t1; })],
+      ['➡️ Aage', '', open.filter(function (t) { return t.due > t1; })]
+    ];
+    var doneToday = mine.filter(function (t) { return t.status === 'Done' && dayKey(t.doneAt) === t0; });
+    var doneEarlier = mine.filter(function (t) { return t.status === 'Done' && dayKey(t.doneAt) !== t0; });
+    var h = '';
+    groups.forEach(function (g) {
+      if (!g[2].length) return;
+      h += '<div class="sec ' + g[1] + '">' + g[0] + ' <span class="c">(' + g[2].length + ')</span></div>' + g[2].map(taskHtml).join('');
+    });
+    if (!open.length) h += '<div class="empty">Koi khula kaam nahi 🎉</div>';
+    if (doneToday.length) h += '<div class="sec">✅ Aaj poore hue (' + doneToday.length + ')</div>' + doneToday.map(taskHtml).join('');
+    if (doneEarlier.length) h += '<details><summary>Pichle 7 din mein poore (' + doneEarlier.length + ')</summary>' + doneEarlier.map(taskHtml).join('') + '</details>';
+    $('taskList').innerHTML = h;
+  }
+
+  // ---------- REVIEW ----------
+  function renderReview() {
+    var t0 = todayKey(), t1 = plusDays(1);
+    var dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
+    var ds = dayStart.getTime();
+    var open = D.tasks.filter(function (t) { return t.status === 'Open'; }).sort(sortTasks);
+    var over = open.filter(function (t) { return t.due && t.due < t0; });
+    var todayLeft = open.filter(function (t) { return !t.due || t.due === t0; });
+    var tomorrow = open.filter(function (t) { return t.due === t1; });
+    var madeToday = D.tasks.filter(function (t) { return t.created >= ds; });
+    var doneToday = D.tasks.filter(function (t) { return t.status === 'Done' && t.doneAt >= ds; });
+    var pend = D.chats.filter(function (c) { return c.pending; }).sort(function (a, b) { return b.lastPending.t - a.lastPending.t; });
+    var calls = [];
+    (D.callsToday || []).forEach(function (x) { var c = chatBy(x.jid); if (c) calls.push({ c: c, m: { id: x.id, t: x.t } }); });
+    calls.sort(function (a, b) { return b.m.t - a.m.t; });
+    var busy = D.chats.map(function (c) {
+      return { c: c, n: c.todayIn || 0 };
+    }).filter(function (x) { return x.n && !x.c.muted; }).sort(function (a, b) { return b.n - a.n; });
+
+    var d = new Date();
+    var title = d.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' });
+    var h = '<div class="card"><h3>🌆 Aaj ka hisaab — ' + esc(title) + '</h3><div class="stats">' +
+      '<div class="stat"><b>' + madeToday.length + '</b><span>Aaj naye kaam</span></div>' +
+      '<div class="stat"><b>' + doneToday.length + '</b><span>Aaj poore</span></div>' +
+      '<div class="stat"><b>' + open.length + '</b><span>Khule kaam</span></div>' +
+      '<div class="stat"><b style="color:var(--red)">' + over.length + '</b><span>Overdue</span></div>' +
+      '<div class="stat"><b style="color:var(--amber)">' + pend.length + '</b><span>Reply baaki</span></div>' +
+      '</div><p class="hint">Kal ke liye kuch khiskaana hai to ⏭ dabaiye; jo ho gaya use ✓ kar dijiye.</p>' +
+      '<button class="btn pri" data-act="brief">📲 Ye hisaab mujhe WhatsApp pe bhejo</button></div>';
+
+    if (over.length) h += '<div class="sec red">⏰ Overdue (' + over.length + ')</div>' + over.map(taskHtml).join('');
+    if (todayLeft.length) h += '<div class="sec">📌 Aaj ke baaki (' + todayLeft.length + ')</div>' + todayLeft.map(taskHtml).join('');
+    if (tomorrow.length) h += '<div class="sec">🗓️ Kal ke liye (' + tomorrow.length + ')</div>' + tomorrow.map(taskHtml).join('');
+
+    if (pend.length) {
+      h += '<div class="sec">🔔 Tag / direct — reply baaki (' + pend.length + ')</div><div class="card">' +
+        pend.map(function (c) {
+          var p = c.lastPending;
+          return '<div class="rl"><span class="x"><b>' + esc(c.name) + '</b> — ' + esc(p.who) + ': ' +
+            (p.call ? '📞 call' : esc(p.text.slice(0, 140))) + ' <span class="tm">' + fmtTime(p.t) + '</span></span>' +
+            '<button class="btn sm" data-act="open" data-jid="' + esc(c.jid) + '">Kholo</button>' +
+            '<button class="btn sm" data-act="kaam-msg" data-jid="' + esc(c.jid) + '" data-id="' + esc(p.id) + '">+ Kaam</button></div>';
+        }).join('') + '</div>';
+    }
+    if (calls.length) {
+      h += '<div class="sec">📞 Aaj ke WhatsApp calls (' + calls.length + ')</div><div class="card">' +
+        calls.map(function (x) {
+          return '<div class="rl"><span class="x"><b>' + esc(x.c.name) + '</b> <span class="tm">' + fmtTime(x.m.t) + '</span></span>' +
+            '<button class="btn sm" data-act="kaam-msg" data-jid="' + esc(x.c.jid) + '" data-id="' + esc(x.m.id) + '">+ Kaam</button></div>';
+        }).join('') + '</div>';
+    }
+    if (madeToday.length) {
+      h += '<details><summary>🆕 Aaj bane saare kaam (' + madeToday.length + ')</summary>' + madeToday.map(taskHtml).join('') + '</details>';
+    }
+    if (busy.length) {
+      h += '<div class="sec">💬 Aaj kahan kitne messages aaye</div><div class="card">' +
+        busy.slice(0, 25).map(function (x) {
+          return '<div class="rl"><span class="x">' + esc(x.c.name) + '</span><span class="tm">' + x.n + ' msg' +
+            (x.c.unseen ? ' · <b style="color:var(--blue)">' + x.c.unseen + ' bina dekhe</b>' : '') + '</span>' +
+            '<button class="btn sm" data-act="open" data-jid="' + esc(x.c.jid) + '">Kholo</button></div>';
+        }).join('') + '</div>';
+    }
+    $('review').innerHTML = h;
+  }
+
+  function changeCategory(jid) {
+    var c = chatBy(jid);
+    if (!c) return;
+    var cats = ['Supplier', 'Internal', 'Customer', 'Personal', 'Other'];
+    openModal('🏷 Category — ' + c.name, '<label>Ye chat kis type ka hai?</label><select id="cat-sel">' + opts(cats, c.cat) + '</select>',
+      'Save karo', function (btn) {
+        var v = $('cat-sel').value;
+        call('setWaChatCategory', [c.jid, v], function () { c.cat = v; closeModal(); renderInbox(); toast('Save ✓'); }, btn);
+      });
+  }
+
+  function copyText(t) {
+    try { navigator.clipboard.writeText(t).then(function () { toast('Copy ho gaya'); }); }
+    catch (e) { prompt('Copy kar lijiye:', t); }
+  }
+
+  // ---------- SETUP ----------
+  function loadSetup() {
+    rpc('getWaSetup', [], renderSetup, function (e) { $('setup').innerHTML = '<div class="banner red">' + esc(e.message) + '</div>'; });
+  }
+  function renderSetup(s) {
+    var ok = s.status === 'connected';
+    $('setup').innerHTML =
+      '<div class="card"><h3>1. WaSender webhook</h3>' +
+      '<p class="hint">WaSender dashboard → aapka session → Webhook. Ye URL daaliye, events <b>messages.upsert</b> aur <b>call</b> on kijiye, Save.</p>' +
+      '<div class="due"><input type="text" readonly value="' + esc(s.webhookUrl) + '" onclick="this.select()">' +
+      '<button class="btn sm pri" data-act="copy" data-text="' + esc(s.webhookUrl) + '">Copy</button></div>' +
+      '<p class="hint">Ye URL kisi ko mat dijiye — isse koi bhi aapke inbox mein message daal sakta hai.</p></div>' +
+      '<div class="card"><h3>2. Haalat</h3><div class="stats">' +
+      '<div class="stat"><b style="color:' + (ok ? 'var(--green)' : 'var(--red)') + '">' + (ok ? '✓' : '✕') + '</b><span>WaSender: ' + esc(s.status) + '</span></div>' +
+      '<div class="stat"><b>' + s.msgs + '</b><span>Messages saved</span></div>' +
+      '<div class="stat"><b>' + (s.lastArrival ? fmtTime(s.lastArrival) : '—') + '</b><span>Pichla message</span></div>' +
+      '<div class="stat"><b>' + s.groups + '</b><span>Groups</span></div>' +
+      '<div class="stat"><b>' + s.contacts + '</b><span>Contacts</span></div></div>' +
+      '<p class="hint">Group ke naam har 6 ghante, contacts har raat apne aap aate hain. ' +
+      (s.namesSynced ? 'Pichli baar: ' + fmtTime(s.namesSynced) + '. ' : '') + '</p>' +
+      '<button class="btn" data-act="sync">⟳ Group names + contacts abhi laao</button></div>' +
+      '<div class="card"><h3>3. WhatsApp pe summary</h3>' +
+      '<p class="hint">Subah ~9:30 aaj ke kaam aur reply baaki; shaam 7 baje din ka hisaab — office number pe.</p>' +
+      (s.briefs ? '<button class="btn" data-act="briefs" data-on="0">🔕 Band karo (abhi ON hai)</button>'
+                : '<button class="btn pri" data-act="briefs" data-on="1">🔔 Chalu karo</button>') + '</div>' +
+      '<div class="card"><a class="btn" style="text-decoration:none" href="/logout">Logout</a></div>';
+  }
+
+  // ---------- view switching ----------
+  function setView(v) {
+    VIEW = v;
+    store('view', v);
+    document.querySelectorAll('nav.views button').forEach(function (b) { b.classList.toggle('active', b.dataset.view === v); });
+    ['inbox', 'kaam', 'review', 'setup'].forEach(function (k) { $('v-' + k).hidden = k !== v; });
+    if (v === 'setup') loadSetup();
+  }
+  function setFilter(f) {
+    FILTER = f;
+    setView('inbox');
+    renderInbox();
+  }
+  function openChat(jid) {
+    FILTER = 'all'; Q = ''; $('q').value = '';
+    setView('inbox');
+    if (!OPEN[jid]) toggleChat(jid); else renderInbox();
+    renderInbox();
+    var el = $('c-' + domId(jid));
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  // ---------- events ----------
+  document.addEventListener('click', function (e) {
+    var el = e.target.closest('[data-act]');
+    if (!el) {
+      if (e.target === $('modal')) closeModal();
+      return;
+    }
+    if (el.tagName === 'A' && el.getAttribute('href') === '#') e.preventDefault();
+    var a = el.dataset.act, jid = el.dataset.jid, id = el.dataset.id;
+    if (a === 'toggle') toggleChat(jid);
+    else if (a === 'open') openChat(jid);
+    else if (a === 'clear') clearTags(jid);
+    else if (a === 'mute') toggleMute(jid);
+    else if (a === 'cat') changeCategory(jid);
+    else if (a === 'sync') call('syncWaNames', [], function (n) { toast(n + ' groups ke naam aa gaye'); loadSetup(); load(true); }, el);
+    else if (a === 'briefs') call('setWaBriefs', [el.dataset.on === '1'], function () { loadSetup(); }, el);
+    else if (a === 'copy') copyText(el.dataset.text);
+    else if (a === 'kaam-msg') kaamFromMsg(jid, id);
+    else if (a === 'kaam-chat') kaamFromChat(jid);
+    else if (a === 'filter') setFilter(el.dataset.f);
+    else if (a === 'view') setView(el.dataset.v);
+    else if (a === 'team') { TEAM = el.dataset.t; renderKaam(); }
+    else if (a === 'notify') openNotify(id);
+    else if (a === 'edit') editTask(id);
+    else if (a === 'postpone') setTask(id, { due: plusDays(1) }, '⏭ Kal pe daal diya');
+    else if (a === 'cancel-task') {
+      if (confirm('Ye kaam hata dein?')) { closeModal(); setTask(id, { status: 'Cancelled' }, 'Hata diya'); }
+    }
+    else if (a === 'due') { $(el.dataset.p + '-due').value = plusDays(Number(el.dataset.n)); }
+    else if (a === 'modal-close') closeModal();
+    else if (a === 'modal-save') { if (MODAL_SAVE) MODAL_SAVE(el); }
+    else if (a === 'brief') {
+      if (confirm('Aaj ka hisaab office number pe WhatsApp karein?')) {
+        call('sendWaBriefNow', ['evening'], function () { toast('📲 WhatsApp pe bhej diya'); }, el);
+      }
+    }
+  });
+  document.addEventListener('change', function (e) {
+    var el = e.target;
+    if (el.dataset && el.dataset.act === 'done') {
+      setTask(el.dataset.id, { status: el.checked ? 'Done' : 'Open' }, el.checked ? '✅ Ho gaya' : 'Wapas khula');
+    } else if (el.dataset && el.dataset.act === 'type-change') {
+      var p = el.dataset.p;
+      if ($(p + '-team')) $(p + '-team').value = guessTeam(el.value);
+    }
+  });
+  document.addEventListener('input', function (e) {
+    if (e.target.id === 'n-find') {
+      var sel = $('n-group').value;
+      $('n-group').innerHTML = groupOptions(e.target.value, sel);
+    }
+  });
+  document.querySelectorAll('nav.views button').forEach(function (b) {
+    b.addEventListener('click', function () { setView(b.dataset.view); });
+  });
+  // Names and preview lines filter at once; message text is searched on the server, debounced.
+  var searchTimer = null;
+  $('q').addEventListener('input', function () {
+    Q = this.value.trim(); HITS = null;
+    if (D) renderInbox();
+    clearTimeout(searchTimer);
+    if (Q.length < 2) return;
+    var q = Q;
+    searchTimer = setTimeout(function () {
+      rpc('searchWa', [q, DAYS], function (jids) {
+        if (q !== Q) return;
+        HITS = {}; jids.forEach(function (j) { HITS[j] = true; });
+        renderInbox();
+      });
+    }, 350);
+  });
+  $('allSeen').addEventListener('click', function () { if (D) allSeen(this); });
+  $('quickSave').addEventListener('click', function () { if (D) saveQuick(this); });
+  $('reload').addEventListener('click', function () { load(); });
+  $('days').value = String(DAYS);
+  $('days').addEventListener('change', function () { DAYS = Number(this.value) || 2; store('days', DAYS); load(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !$('modal').hidden) closeModal(); });
+
+  // Every 3 minutes while the page is on screen — never while a form is open, so nothing typed is lost.
+  setInterval(function () {
+    if (!document.hidden && $('modal').hidden && document.activeElement && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) load(true);
+  }, 180000);
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden && D && nowMs() - D.now > 120000 && $('modal').hidden) load(true);
+  });
+
+  setView(store('view') || 'inbox');
+  load();
+</script>
+</body>
+</html>

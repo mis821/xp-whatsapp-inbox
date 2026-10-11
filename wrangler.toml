@@ -1,0 +1,20 @@
+name = "xp-whatsapp-inbox"
+main = "src/index.js"
+compatibility_date = "2025-01-15"
+workers_dev = true
+
+[[rules]]
+type = "Text"
+globs = ["**/*.html"]
+fallthrough = false
+
+[[d1_databases]]
+binding = "DB"
+database_name = "xp_wa_inbox"
+database_id = "__D1_DATABASE_ID__"   # filled in by the deploy workflow
+migrations_dir = "migrations"
+
+# All in UTC. 04:00 = 9:30 AM IST (morning summary), 13:30 = 7:00 PM IST (evening summary),
+# 21:00 = 2:30 AM IST (clean-up + contact names), every 6 hours = group names.
+[triggers]
+crons = ["0 4 * * *", "30 13 * * *", "0 21 * * *", "0 */6 * * *"]

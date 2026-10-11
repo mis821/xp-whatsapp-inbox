@@ -428,7 +428,33 @@ async function selfFilter(env) {
 
 // The Inbox list: per-chat counts plus ONE preview line each. A chat's messages are fetched only
 // when it is opened (getChat) — on a busy day the full set would be megabytes on a phone.
+// Messages stored before the Zaroori list existed (or before a rule changed) get checked once.
+// FLAGS_VERSION goes up whenever flagReasons changes, so old messages are re-checked against it.
+const FLAGS_VERSION = '1';
+async function backfillFlags(env) {
+  if ((await getSetting(env, 'flags_version')) === FLAGS_VERSION) return;
+  let me = { ids: [], nums: [] };
+  try { me = meIdsOf(await getMe(env)); } catch (e) { /* tags already stored on each row */ }
+  const rows = (await env.DB.prepare(
+    'SELECT id, chat, t, is_group, from_me, tag, text FROM messages WHERE from_me = 0 AND received_at >= ?'
+  ).bind(Date.now() - KEEP_DAYS * DAY).all()).results;
+  const flags = [];
+  for (const r of rows) {
+    if (me.ids.indexOf(bare(r.chat)) !== -1) continue;
+    const why = flagReasons(r);
+    if (why.length) flags.push({ msg_id: r.id, chat: r.chat, t: r.t, reasons: why.join(' ') });
+  }
+  for (let i = 0; i < flags.length; i += 2000) {
+    await env.DB.prepare(
+      "INSERT OR IGNORE INTO flags (msg_id, chat, t, reasons) SELECT json_extract(value, '$.msg_id'), " +
+      "json_extract(value, '$.chat'), json_extract(value, '$.t'), json_extract(value, '$.reasons') FROM json_each(?)"
+    ).bind(JSON.stringify(flags.slice(i, i + 2000))).run();
+  }
+  await setSetting(env, 'flags_version', FLAGS_VERSION);
+}
+
 async function getInbox(env, daysArg) {
+  await backfillFlags(env);
   const { days, since } = windowStart(daysArg);
   const now = Date.now(), today = dayStart(now);
   const sf = await selfFilter(env);

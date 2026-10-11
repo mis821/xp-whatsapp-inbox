@@ -190,6 +190,11 @@ assert.deepEqual(flagReasons({ is_group: 1, tag: 0, text: 'pymt kara do sir' }),
 assert.deepEqual(flagReasons({ is_group: 1, tag: 0, text: 'नीरज जी का भुगतान' }), ['neeraj', 'payment']);
 assert.deepEqual(flagReasons({ is_group: 1, tag: 0, text: 'dispatch ho gaya, payment terms as per PO', from_me: 1 }), [], 'own messages never');
 assert.deepEqual(flagReasons({ is_group: 1, tag: 0, text: 'gaadi gate pe hai' }), []);
+// Messages stored before the list existed are checked once on the next load.
+env.DB.raw.prepare("INSERT INTO messages (id, received_at, t, event, chat, is_group, from_me, text, tag) VALUES ('OLD1', ?, ?, 'x', 'G1@g.us', 1, 0, 'Neeraj ji ka payment', 0)").run(now, now - 90000);
+env.DB.raw.prepare("DELETE FROM settings WHERE k = 'flags_version'").run();
+d = await rpc('getWaInbox', 2);
+assert.deepEqual(d.flags.find(f => f.id === 'OLD1').reasons, ['neeraj', 'payment'], 'backfilled');
 await post({ event: 'xp.rows', data: { rows: [
   { id: 'Z1', t: now - 50000, chat: 'G1@g.us', sender: '777@lid', text: 'Sir 3 bill ka payment pending hai' },
   { id: 'Z2', t: now - 40000, chat: 'G3@g.us', sender: '555@lid', text: 'Neeraj sir se baat ho gayi' },

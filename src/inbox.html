@@ -397,18 +397,14 @@
 
   function renderBanner() {
     var h = '', d = D;
-    if (d.status && d.status !== 'connected') {
-      h += '<div class="banner red">⚠️ WaSender session: <b>' + esc(d.status) + '</b> — naye messages nahi aa rahe. ' +
-           'WaSender dashboard mein session dobara connect kijiye.</div>';
-    }
     if (!d.lastArrival) {
-      h += '<div class="banner amber">Abhi tak ek bhi message nahi aaya. Webhook setup check kijiye ' +
-           '(<a href="#" data-act="view" data-v="setup">⚙️ Setup</a> mein webhook URL dekhiye).</div>';
+      h += '<div class="banner amber">Abhi tak ek bhi message nahi aaya. <a href="#" data-act="view" data-v="setup">⚙️ Setup</a> ' +
+           'mein WhatsApp Web wali script install kijiye.</div>';
     } else {
       var hrs = (d.now - d.lastArrival) / 3600000, hr = new Date(d.now).getHours();
       if (hrs > 2 && hr >= 10 && hr <= 20) {
         h += '<div class="banner amber">Pichla message ' + Math.floor(hrs) + ' ghante pehle aaya tha — ' +
-             'agar groups mein baat chal rahi hai to webhook / WaSender session check kijiye.</div>';
+             'WhatsApp Web ka tab khula hai aur neeche left mein "XP Inbox: live ✓" dikh raha hai?</div>';
       }
     }
     $('banner').innerHTML = h;
@@ -882,13 +878,28 @@
   }
   function renderSetup(s) {
     var ok = s.status === 'connected';
+    var webOk = s.webSync && (Date.now() - s.webSync) < 6 * 3600000;
     $('setup').innerHTML =
-      '<div class="card"><h3>1. WaSender webhook</h3>' +
-      '<p class="hint">WaSender dashboard → aapka session → Webhook. Ye URL daaliye, events <b>messages.upsert</b> aur <b>call</b> on kijiye, Save.</p>' +
+      '<div class="card"><h3>1. WhatsApp Web se messages (Chrome)</h3>' +
+      '<p class="hint" style="margin-top:0">Status: ' + (s.webSync ? (webOk ? '<b style="color:var(--green)">✓ chal raha hai</b>' : '<b style="color:var(--amber)">pichli baar ' + fmtTime(s.webSync) + '</b> — WhatsApp Web tab khula hai?')
+                                                    : '<b style="color:var(--red)">abhi shuru nahi hua</b>') + '</p>' +
+      '<ol class="hint" style="padding-left:18px;margin:6px 0">' +
+      '<li>Chrome mein <a target="_blank" rel="noopener" href="https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo">Tampermonkey</a> install kijiye (free).</li>' +
+      '<li>Chrome ke <b>Extensions</b> page pe Tampermonkey ke <b>Details</b> kholiye aur <b>"Allow User Scripts"</b> ON kijiye ' +
+          '(ye option na dikhe to upar right mein <b>Developer mode</b> ON kijiye).</li>' +
+      '<li>Ye button dabaiye, Tampermonkey kholega — <b>Install</b> dabaiye: ' +
+          '<a class="btn sm pri" style="text-decoration:none" target="_blank" href="' + esc(s.scriptUrl) + '">⬇ Script install karo</a></li>' +
+      '<li>WhatsApp Web ka tab <b>reload</b> kijiye. Neeche left mein hara <b>"XP Inbox: live ✓"</b> dikhega.</li></ol>' +
+      '<p class="hint">Jab tak WhatsApp Web khula hai, har naya message yahan aata rahega. Tab kholte hi pichhle 2 din ke messages bhi aa jaate hain.</p>' +
+      '<p class="hint">Button kaam na kare to: Tampermonkey → <b>Create a new script</b> → sab mita ke ' +
+          '<button class="btn sm" data-act="copy-script">script copy karo</button> wala paste → Save.</p></div>' +
+      '<div class="card"><h3>WaSender webhook (optional)</h3>' +
+      '<p class="hint" style="margin-top:0">Agar kabhi WaSender dashboard mil jaye: is URL ko Webhook mein daal ke events <b>messages.upsert</b> + <b>call</b> on karne se ' +
+      'computer band hone pe bhi messages aate rahenge.</p>' +
       '<div class="due"><input type="text" readonly value="' + esc(s.webhookUrl) + '" onclick="this.select()">' +
-      '<button class="btn sm pri" data-act="copy" data-text="' + esc(s.webhookUrl) + '">Copy</button></div>' +
-      '<p class="hint">Ye URL kisi ko mat dijiye — isse koi bhi aapke inbox mein message daal sakta hai.</p></div>' +
-      '<div class="card"><h3>2. Haalat</h3><div class="stats">' +
+      '<button class="btn sm" data-act="copy" data-text="' + esc(s.webhookUrl) + '">Copy</button></div>' +
+      '<p class="hint">Ye URL (aur script) kisi ko mat dijiye — isme aapke inbox ki chaabi hai.</p></div>' +
+      '<div class="card"><h3>Haalat</h3><div class="stats">' +
       '<div class="stat"><b style="color:' + (ok ? 'var(--green)' : 'var(--red)') + '">' + (ok ? '✓' : '✕') + '</b><span>WaSender: ' + esc(s.status) + '</span></div>' +
       '<div class="stat"><b>' + s.msgs + '</b><span>Messages saved</span></div>' +
       '<div class="stat"><b>' + (s.lastArrival ? fmtTime(s.lastArrival) : '—') + '</b><span>Pichla message</span></div>' +
@@ -897,7 +908,7 @@
       '<p class="hint">Group ke naam har 6 ghante, contacts har raat apne aap aate hain. ' +
       (s.namesSynced ? 'Pichli baar: ' + fmtTime(s.namesSynced) + '. ' : '') + '</p>' +
       '<button class="btn" data-act="sync">⟳ Group names + contacts abhi laao</button></div>' +
-      '<div class="card"><h3>3. WhatsApp pe summary</h3>' +
+      '<div class="card"><h3>WhatsApp pe summary</h3>' +
       '<p class="hint">Subah ~9:30 aaj ke kaam aur reply baaki; shaam 7 baje din ka hisaab — office number pe.</p>' +
       (s.briefs ? '<button class="btn" data-act="briefs" data-on="0">🔕 Band karo (abhi ON hai)</button>'
                 : '<button class="btn pri" data-act="briefs" data-on="1">🔔 Chalu karo</button>') + '</div>' +
@@ -943,6 +954,9 @@
     else if (a === 'sync') call('syncWaNames', [], function (n) { toast(n + ' groups ke naam aa gaye'); loadSetup(); load(true); }, el);
     else if (a === 'briefs') call('setWaBriefs', [el.dataset.on === '1'], function () { loadSetup(); }, el);
     else if (a === 'copy') copyText(el.dataset.text);
+    else if (a === 'copy-script') {
+      fetch('/wa-sync.user.js', { credentials: 'same-origin' }).then(function (r) { return r.text(); }).then(copyText);
+    }
     else if (a === 'kaam-msg') kaamFromMsg(jid, id);
     else if (a === 'kaam-chat') kaamFromChat(jid);
     else if (a === 'filter') setFilter(el.dataset.f);

@@ -21,7 +21,7 @@ globalThis.fetch = async (url, opts = {}) => {
   return j({ success: true, data: {} });
 };
 const env = { DB: makeD1(ROOT + 'migrations'), WASENDER_API_KEY: 'k', DASHBOARD_PASSWORD: 'demo' };
-const worker = makeWorker(fs.readFileSync(ROOT + 'src/inbox.html', 'utf8'));
+const worker = makeWorker(fs.readFileSync(ROOT + 'src/inbox.html', 'utf8'), fs.readFileSync(ROOT + 'src/wa-sync.user.js', 'utf8'));
 const call = (path, init) => worker.fetch(new Request('http://localhost:8787' + path, init), env, { waitUntil() {} });
 const { syncNames } = await import('../src/app.js');
 await syncNames(env, true);

@@ -25,7 +25,7 @@ globalThis.fetch = async (url, opts = {}) => {
 };
 
 const env = { DB: makeD1(ROOT + 'migrations'), WASENDER_API_KEY: 'k', DASHBOARD_PASSWORD: 'secret-pass' };
-const worker = makeWorker('<html>INBOX</html>');
+const worker = makeWorker('<html>INBOX</html>', fs.readFileSync(ROOT + 'src/wa-sync.user.js', 'utf8'));
 const pending = [];
 const ctx = { waitUntil: p => pending.push(p) };
 const req = (path, init = {}) => worker.fetch(new Request('https://wa.example.workers.dev' + path, init), env, ctx);
@@ -158,6 +158,27 @@ assert.equal(env.DB.raw.prepare('SELECT COUNT(*) c FROM messages').get().c, 9, '
 
 console.log('\nsetup:', JSON.stringify(await rpc('getWaSetup')).replace(/token=\w+/, 'token=…'));
 console.log('parse:', JSON.stringify(parseKaam('#todo Maruti Paper - rate confirm parso', now)), shortParty('XPP l AK Industries'));
+
+// WhatsApp Web script: served only when logged in, with the endpoint filled in; its rows are stored.
+assert.match(await (await req('/wa-sync.user.js')).text(), /password/, 'script needs login');
+const us = await (await req('/wa-sync.user.js', { headers: { cookie } })).text();
+assert.ok(us.includes(setup.webhookUrl) && !us.includes('__ENDPOINT__'), 'endpoint baked in');
+const before2 = env.DB.raw.prepare('SELECT COUNT(*) c FROM messages').get().c;
+const webRows = [];
+for (let i = 0; i < 450; i++) webRows.push({ id: 'W' + i, t: now - i * 60000, chat: 'G' + (100 + (i % 30)) + '@g.us', chat_name: 'Web Group ' + (i % 30),
+  from_me: 0, sender: '777@lid', sender_phone: '', sender_name: '', type: 'text', text: i === 5 ? '@' + ME_LID + ' dekhiye' : 'web msg ' + i,
+  mentions: i === 5 ? ME_LID + '@lid' : '', reply_to: '' });
+webRows.push({ id: 'Wpers', t: now - 1000, chat: '917777700000@s.whatsapp.net', from_me: 0, sender: '917777700000@s.whatsapp.net', sender_phone: '917777700000', type: 'text', text: 'hello from web' });
+webRows.push({ id: 'Wstatus', t: now, chat: 'status@broadcast', type: 'text', text: 'x' });
+r = await post({ event: 'xp.rows', data: { rows: webRows } });
+assert.equal(r.status, 200);
+await post({ event: 'xp.rows', data: { rows: webRows } });   // re-sent on the next page load: no duplicates
+assert.equal(env.DB.raw.prepare('SELECT COUNT(*) c FROM messages').get().c - before2, 451, '450 group + 1 personal, rows capped at 500, status skipped');
+d = await rpc('getWaInbox', 2);
+assert.equal(by('Web Group 5').pending, 1, 'LID mention from WhatsApp Web is a tag');
+assert.equal(by('Web Group 5').preview.who, 'Ramesh Jyoti', 'sender named from contacts');
+assert.equal(env.DB.raw.prepare("SELECT name FROM chats WHERE jid = 'G105@g.us'").get().name, 'Web Group 5');
+assert.ok((await rpc('getWaSetup')).webSync > 0);
 
 // speed: 30k messages over 260 chats, then one inbox load
 const ins = env.DB.raw.prepare('INSERT INTO messages (id, received_at, t, event, chat, is_group, from_me, sender, sender_name, type, text, tag) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');

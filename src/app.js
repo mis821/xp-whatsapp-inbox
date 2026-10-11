@@ -176,6 +176,19 @@ export function rowsFrom(body, now) {
   const ev = String((body && body.event) || '');
   const data = (body && body.data) || {};
   const fallback = body && body.timestamp ? Number(body.timestamp) * 1000 : now;
+  // From the Tampermonkey script on WhatsApp Web (see userscript.js): rows already flat.
+  if (ev === 'xp.rows') {
+    const list = Array.isArray(data.rows) ? data.rows.slice(0, 500) : [];
+    return list.filter(r => r && r.id && r.chat && !/@(broadcast|newsletter)$/.test(String(r.chat))).map(r => ({
+      id: String(r.id).slice(0, 120), received_at: now, t: Number(r.t) || now, event: 'wa-web',
+      chat: String(r.chat), chat_name: String(r.chat_name || '').slice(0, 200),
+      is_group: /@g\.us$/.test(String(r.chat)) ? 1 : 0, from_me: r.from_me ? 1 : 0,
+      sender: String(r.sender || ''), sender_phone: String(r.sender_phone || '').replace(/\D/g, ''),
+      sender_name: String(r.sender_name || '').slice(0, 100), type: String(r.type || 'text').slice(0, 20),
+      text: String(r.text || '').slice(0, 3000), mentions: String(r.mentions || '').slice(0, 2000),
+      reply_to: String(r.reply_to || '')
+    }));
+  }
   if (ev === 'call') {
     let calls = data.call || data.calls || [];
     if (!Array.isArray(calls)) calls = [calls];
@@ -228,36 +241,44 @@ export function isTag(r, me) {
   return nums.some(n => n && String(r.text || '').indexOf('@' + n) !== -1);
 }
 
+const MSG_COLS = ['id', 'received_at', 't', 'event', 'chat', 'is_group', 'from_me', 'sender', 'sender_phone',
+  'sender_name', 'type', 'text', 'mentions', 'reply_to', 'tag'];
+
+// A batch of any size is stored in a handful of queries: the rows travel as ONE JSON parameter and
+// SQLite's json_each unpacks them. Workers Free allows 50 D1 queries per request and 100 bound
+// parameters per query, so a statement per message would cap a WhatsApp Web backfill at a few
+// dozen messages.
 export async function ingest(env, rows, waitUntil) {
   let me = { ids: [], nums: [] };
-  try { me = meIdsOf(await getMe(env)); } catch (e) { /* tags are recomputed nowhere — but storing the message matters more */ }
-  const stmts = [];
-  for (const r of rows) {
-    r.tag = isTag(r, me) ? 1 : 0;
-    if (!r.from_me && !r.sender_name) {
-      const keys = [bare(r.sender), r.sender_phone ? r.sender_phone + '@s.whatsapp.net' : ''].filter(Boolean);
-      if (keys.length) {
-        const c = await env.DB.prepare('SELECT name FROM contacts WHERE jid IN (' + keys.map(() => '?').join(',') + ') LIMIT 1')
-          .bind(...keys).first();
-        if (c) r.sender_name = c.name;
-      }
-    }
-    stmts.push(env.DB.prepare(
-      'INSERT OR IGNORE INTO messages (id, received_at, t, event, chat, is_group, from_me, sender, sender_phone, ' +
-      'sender_name, type, text, mentions, reply_to, tag) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
-    ).bind(r.id, r.received_at, r.t, r.event, r.chat, r.is_group, r.from_me, r.sender, r.sender_phone,
-           r.sender_name, r.type, r.text, r.mentions, r.reply_to, r.tag));
+  try { me = meIdsOf(await getMe(env)); } catch (e) { /* storing the message matters more than tagging it */ }
+  for (const r of rows) r.tag = isTag(r, me) ? 1 : 0;
+  const data = JSON.stringify(rows.map(r => { const o = {}; MSG_COLS.forEach(c => { o[c] = r[c] === undefined ? null : r[c]; }); return o; }));
 
-    const self = me.ids.indexOf(bare(r.chat)) !== -1;
-    if (!self) {
-      const personName = !r.is_group && !r.from_me ? (r.sender_name || '') : '';
-      stmts.push(env.DB.prepare(
-        "INSERT INTO chats (jid, name, kind) VALUES (?, NULLIF(?, ''), ?) " +
-        "ON CONFLICT(jid) DO UPDATE SET name = COALESCE(chats.name, excluded.name)"
-      ).bind(r.chat, personName, r.is_group ? 'group' : 'personal'));
-    }
+  // One row per chat seen in this batch (the "Message yourself" chat is notes, not a conversation).
+  const chats = {};
+  for (const r of rows) {
+    if (me.ids.indexOf(bare(r.chat)) !== -1) continue;
+    const c = chats[r.chat] || (chats[r.chat] = { jid: r.chat, name: '', kind: r.is_group ? 'group' : 'personal' });
+    if (r.is_group && r.chat_name) c.name = r.chat_name;
+    if (!r.is_group && !c.name) c.name = r.chat_name || (!r.from_me ? r.sender_name : '') || '';
   }
-  await env.DB.batch(stmts);
+
+  await env.DB.batch([
+    env.DB.prepare('INSERT OR IGNORE INTO messages (' + MSG_COLS.join(', ') + ') SELECT ' +
+      MSG_COLS.map(c => "json_extract(value, '$." + c + "')").join(', ') + ' FROM json_each(?)').bind(data),
+    // Senders the payload left nameless get their name from the contact list.
+    env.DB.prepare(
+      "UPDATE messages SET sender_name = (SELECT name FROM contacts WHERE contacts.jid = messages.sender " +
+      "OR contacts.jid = messages.sender_phone || '@s.whatsapp.net' LIMIT 1) " +
+      "WHERE id IN (SELECT json_extract(value, '$.id') FROM json_each(?)) AND from_me = 0 AND IFNULL(sender_name, '') = ''"
+    ).bind(data),
+    env.DB.prepare(
+      "INSERT INTO chats (jid, name, kind) SELECT json_extract(value, '$.jid'), COALESCE(NULLIF(json_extract(value, '$.name'), ''), " +
+      "(SELECT name FROM contacts WHERE contacts.jid = json_extract(value, '$.jid'))), " +
+      "json_extract(value, '$.kind') FROM json_each(?) WHERE true ON CONFLICT(jid) DO UPDATE SET " +
+      "name = CASE WHEN excluded.kind = 'group' THEN COALESCE(excluded.name, chats.name) ELSE COALESCE(chats.name, excluded.name) END"
+    ).bind(JSON.stringify(Object.values(chats)))
+  ]);
 
   // "#kaam …" from the office number → a task, once per message.
   for (const r of rows) {
@@ -275,9 +296,9 @@ export async function ingest(env, rows, waitUntil) {
     });
   }
 
-  // A group the inbox has never seen: fetch its name in the background, off the webhook's clock.
-  const unnamed = [...new Set(rows.filter(r => r.is_group).map(r => r.chat))];
-  if (unnamed.length && waitUntil) {
+  // A group with no name yet: ask WaSender in the background, off the request's clock.
+  const unnamed = Object.values(chats).filter(c => c.kind === 'group' && !c.name).map(c => c.jid).slice(0, 10);
+  if (unnamed.length && waitUntil && env.WASENDER_API_KEY) {
     waitUntil((async () => {
       for (const jid of unnamed) {
         const c = await env.DB.prepare('SELECT name FROM chats WHERE jid = ?').bind(jid).first();
@@ -480,10 +501,13 @@ async function searchChats(env, q, daysArg) {
 
 // items: [{jid, t}] — each chat seen up to t.
 async function markSeen(env, items) {
-  const stmts = (items || []).filter(it => it && it.jid).map(it => env.DB.prepare(
-    "INSERT INTO chats (jid, kind, seen_upto) VALUES (?, ?, ?) ON CONFLICT(jid) DO UPDATE SET seen_upto = MAX(chats.seen_upto, excluded.seen_upto)"
-  ).bind(String(it.jid), /@g\.us$/.test(it.jid) ? 'group' : 'personal', Number(it.t) || Date.now()));
-  if (stmts.length) await env.DB.batch(stmts);
+  const list = (items || []).filter(it => it && it.jid).map(it => ({
+    jid: String(it.jid), kind: /@g\.us$/.test(it.jid) ? 'group' : 'personal', t: Number(it.t) || Date.now() }));
+  if (!list.length) return true;
+  await env.DB.prepare(
+    "INSERT INTO chats (jid, kind, seen_upto) SELECT json_extract(value, '$.jid'), json_extract(value, '$.kind'), " +
+    "json_extract(value, '$.t') FROM json_each(?) WHERE true ON CONFLICT(jid) DO UPDATE SET seen_upto = MAX(chats.seen_upto, excluded.seen_upto)"
+  ).bind(JSON.stringify(list)).run();
   return true;
 }
 async function clearTags(env, jid, t) {
@@ -597,21 +621,26 @@ async function sendToTeam(env, id, groupJid, text, team) {
 // Names sync (cron + button)
 // ===================================================================
 export async function syncNames(env, withContacts) {
-  const groups = await wa(env, 'GET', '/groups') || [];
-  const stmts = groups.filter(g => g && g.id).map(g => env.DB.prepare(
-    "INSERT INTO chats (jid, name, kind) VALUES (?, NULLIF(?, ''), 'group') ON CONFLICT(jid) DO UPDATE SET name = COALESCE(excluded.name, chats.name)"
-  ).bind(g.id, String(g.name || g.subject || '').trim()));
-  for (let i = 0; i < stmts.length; i += 100) await env.DB.batch(stmts.slice(i, i + 100));
+  const groups = (await wa(env, 'GET', '/groups') || []).filter(g => g && g.id)
+    .map(g => ({ jid: g.id, name: String(g.name || g.subject || '').trim() }));
+  if (groups.length) {
+    await env.DB.prepare(
+      "INSERT INTO chats (jid, name, kind) SELECT json_extract(value, '$.jid'), NULLIF(json_extract(value, '$.name'), ''), 'group' " +
+      "FROM json_each(?) WHERE true ON CONFLICT(jid) DO UPDATE SET name = COALESCE(excluded.name, chats.name)"
+    ).bind(JSON.stringify(groups)).run();
+  }
   if (withContacts) {
     const contacts = await wa(env, 'GET', '/contacts') || [];
-    const cs = [];
+    const list = [];
     contacts.forEach(c => {
       const nm = c && (c.name || c.verifiedName || c.notify);
-      if (!nm) return;
-      [bare(c.id), bare(c.lid)].filter(Boolean).forEach(j => cs.push(
-        env.DB.prepare('INSERT INTO contacts (jid, name) VALUES (?, ?) ON CONFLICT(jid) DO UPDATE SET name = excluded.name').bind(j, nm)));
+      if (nm) [bare(c.id), bare(c.lid)].filter(Boolean).forEach(j => list.push({ jid: j, name: String(nm).slice(0, 100) }));
     });
-    for (let i = 0; i < cs.length; i += 100) await env.DB.batch(cs.slice(i, i + 100));
+    for (let i = 0; i < list.length; i += 1000) {
+      await env.DB.prepare(
+        "INSERT INTO contacts (jid, name) SELECT json_extract(value, '$.jid'), json_extract(value, '$.name') FROM json_each(?) " +
+        'WHERE true ON CONFLICT(jid) DO UPDATE SET name = excluded.name').bind(JSON.stringify(list.slice(i, i + 1000))).run();
+    }
     await env.DB.prepare(
       "UPDATE chats SET name = (SELECT name FROM contacts WHERE contacts.jid = chats.jid) " +
       "WHERE kind = 'personal' AND EXISTS (SELECT 1 FROM contacts WHERE contacts.jid = chats.jid)").run();
@@ -687,7 +716,9 @@ async function getSetup(env, origin) {
     'SELECT (SELECT COUNT(*) FROM messages) AS msgs, (SELECT MAX(received_at) FROM messages) AS last, ' +
     "(SELECT COUNT(*) FROM chats WHERE kind = 'group') AS groups, (SELECT COUNT(*) FROM contacts) AS contacts").first();
   return {
-    webhookUrl: origin + '/webhook?token=' + token, status, briefs: (await getSetting(env, 'briefs')) === 'on',
+    webhookUrl: origin + '/webhook?token=' + token, scriptUrl: origin + '/wa-sync.user.js', status,
+    briefs: (await getSetting(env, 'briefs')) === 'on',
+    webSync: (await env.DB.prepare("SELECT MAX(received_at) AS r FROM messages WHERE event = 'wa-web'").first()).r || 0,
     msgs: counts.msgs, lastArrival: counts.last || 0, groups: counts.groups, contacts: counts.contacts,
     namesSynced: Number(await getSetting(env, 'names_synced')) || 0
   };
@@ -770,7 +801,7 @@ function json(data, status) {
 // ===================================================================
 // Entry points
 // ===================================================================
-export function makeWorker(inboxHtml) {
+export function makeWorker(inboxHtml, userScript) {
   return {
     async fetch(req, env, ctx) {
       const url = new URL(req.url);
@@ -805,6 +836,14 @@ export function makeWorker(inboxHtml) {
           } catch (e) {
             return json({ error: e.message || String(e) }, 200);
           }
+        }
+        // The Tampermonkey script, with this inbox's webhook URL (and so its token) baked in —
+        // which is why it is only handed to a logged-in browser.
+        if (p === '/wa-sync.user.js' && req.method === 'GET') {
+          if (!authed) return loginPage('');
+          const token = await secretSetting(env, 'webhook_token');
+          return new Response(String(userScript || '').replace('__ENDPOINT__', url.origin + '/webhook?token=' + token),
+            { headers: Object.assign({ 'Content-Type': 'text/javascript; charset=utf-8' }, SEC_HEADERS) });
         }
         if (p === '/' && req.method === 'GET') {
           if (!authed) return loginPage('');

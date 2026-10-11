@@ -5,7 +5,7 @@ workers_dev = true
 
 [[rules]]
 type = "Text"
-globs = ["**/*.html"]
+globs = ["**/*.html", "**/*.user.js"]
 fallthrough = false
 
 [[d1_databases]]

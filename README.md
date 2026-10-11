@@ -31,14 +31,18 @@ Kisi chat ke messages tabhi aate hain jab aap use kholte hain (~9 KB).
    | `WASENDER_API_KEY` | WaSender → aapka session → API key |
    | `DASHBOARD_PASSWORD` | dashboard kholne ka password (lamba rakhiye) |
 4. **Deploy:** Actions → Deploy → Run workflow. Khatam hone pe Summary mein dashboard ka URL dikhega.
-5. **Webhook:** dashboard kholiye, password daaliye, aur **⚙️ Setup** tab mein webhook URL copy kijiye.
-   Phir WaSender dashboard → session → Webhook mein wo URL paste kijiye. Events **messages.upsert** aur **call** on kijiye, webhook enable karke Save kijiye.
+5. **Messages lana (WhatsApp Web se):** dashboard kholiye → **⚙️ Setup**:
+   - Chrome mein **Tampermonkey** install kijiye. Extensions → Tampermonkey → Details mein **"Allow User Scripts"** ON kijiye.
+   - **⬇ Script install karo** dabaiye → Tampermonkey mein **Install** dabaiye.
+   - WhatsApp Web (office number) ka tab reload kijiye. Neeche left mein **"XP Inbox: live ✓"** dikhega.
+   - Jab tak WhatsApp Web ka tab khula hai, messages aate rahenge. Tab kholte hi pichhle 2 din ke messages bhi aa jaate hain.
+   - *Optional:* WaSender dashboard mil jaye to Setup tab ka webhook URL wahan daal dijiye. Phir computer band hone pe bhi messages aate rahenge.
 6. Setup tab mein "Group names + contacts abhi laao" dabaiye. Chahein to WhatsApp summary bhi chalu kar dijiye.
 
 Iske baad `main` pe har push apne aap deploy ho jayega.
 
 ## Dhyan rahe
-- WaSender purane messages nahi deta, isliye dashboard mein webhook lagne ke baad wale messages hi aayenge.
+- Computer ya WhatsApp Web ka tab band ho to us beech ke messages tab aayenge, jab tab dobara khulega (pichhle 2 din tak ke).
 - Messages 30 din baad apne aap mit jaate hain. Kaam (tasks) kabhi nahi mitte.
 - Webhook URL mein ek secret token hai. Ye URL kisi ko mat dijiye.
 
@@ -47,6 +51,7 @@ Iske baad `main` pe har push apne aap deploy ho jayega.
 |---|---|
 | `src/app.js` | webhook, database, login, inbox/kaam/summary, cron |
 | `src/inbox.html` | dashboard page |
+| `src/wa-sync.user.js` | Tampermonkey script: WhatsApp Web ke messages padh kar dashboard ko bhejti hai ([WA-JS](https://github.com/wppconnect-team/wa-js) ke zariye). Sirf padhti hai, kuch bhejti nahi |
 | `migrations/0001_init.sql` | database tables |
 | `wrangler.toml` | Worker config, cron times (UTC) |
 | `test/run.mjs` | end-to-end tests (`node test/run.mjs`): asli SQL, nakli WaSender |

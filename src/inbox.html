@@ -619,7 +619,7 @@
   var REASON_LABEL = { tag: '@ Mention', neeraj: 'Neeraj', payment: 'Payment' };
   function flagBy(id) { for (var i = 0; D && i < D.flags.length; i++) if (D.flags[i].id === id) return D.flags[i]; return null; }
   function zHl(text) {
-    return hl(text).replace(/(neeraj|नीरज)/gi, '<mark>$1</mark>');
+    return hl(text).replace(/(\bn(?:ee|ii|ie|i|e)raa?j|नीरज|निरज|नीराज)/gi, '<mark>$1</mark>');
   }
   function isTaskFlag(f) { return f.reasons.indexOf('tasksys') !== -1; }
   function isOwnerFlag(f) { return f.reasons.indexOf('owner') !== -1 && !isTaskFlag(f); }

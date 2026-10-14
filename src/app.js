@@ -32,7 +32,8 @@ const TEAMS = ['Self', 'Accounts', 'Store', 'Purchase', 'Production', 'Quality',
 const KAAM_RE = /^\s*#(kaam|task|todo)\b/i;
 
 // What makes a message "zaroori". Checked on the text as sent (before @digits are turned into names).
-const NEERAJ_RE = /neeraj|niraj|नीरज/i;
+// Neeraj in the spellings people actually type: Neeraj, Niraj, Neraj, Nieraj, Niiraj, Neeraaj …
+const NEERAJ_RE = /\bn(?:ee|ii|ie|i|e)raa?j|नीरज|निरज|नीराज/i;
 // A payment being asked about: the word in its usual spellings and typos, money-transfer terms,
 // and the Hindi words. Deliberately not "amount", "due" or "invoice" alone — those turn up in
 // every dispatch and quality message too.
@@ -470,7 +471,7 @@ async function selfFilter(env) {
 // when it is opened (getChat) — on a busy day the full set would be megabytes on a phone.
 // Messages stored before the Zaroori list existed (or before a rule changed) get checked once.
 // FLAGS_VERSION goes up whenever flagReasons changes, so old messages are re-checked against it.
-const FLAGS_VERSION = '3';
+const FLAGS_VERSION = '4';
 async function backfillFlags(env) {
   if ((await getSetting(env, 'flags_version')) === FLAGS_VERSION) return;
   let me = { ids: [], nums: [] };

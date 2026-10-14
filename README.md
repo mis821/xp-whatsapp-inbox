@@ -5,7 +5,7 @@ It is a standalone project — separate from the PO Tracker, with no Google Shee
 Cloudflare Workers, with data in a Cloudflare D1 database (free plan).
 
 ## Tabs
-- **⭐ Priority** — only messages where you are mentioned in a group, where "Neeraj" is named, or where a payment is raised. Items stay until marked **✓ Done**; reading or replying on WhatsApp does not clear them.
+- **⭐ Priority** — only messages where you are mentioned in a group, where "Neeraj" is named (any common spelling: Neeraj, Niraj, Neraj, नीरज), or where a payment is raised. Items stay until marked **✓ Done**; reading or replying on WhatsApp does not clear them.
 - **📋 Task List** — daily reminders from the task system (tools.xpertpack.in), one card per task however many reminders arrive.
 - **👑 Owners** — every message from Anant Sir, Hitesh Sir and Raj Kumar Sir (numbers in `OWNERS` in `src/app.js`).
 - **✅ Work List** — commitments and follow-ups with due date and owner; can be sent to a team's WhatsApp group.

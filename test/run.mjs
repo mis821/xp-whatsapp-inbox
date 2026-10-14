@@ -188,6 +188,8 @@ assert.deepEqual(flagReasons({ is_group: 1, tag: 1, text: 'Neeraj ji payment kab
 assert.deepEqual(flagReasons({ is_group: 0, tag: 1, text: 'hello' }), [], 'a 1:1 hello is not zaroori');
 assert.deepEqual(flagReasons({ is_group: 1, tag: 0, text: 'pymt kara do sir' }), ['payment']);
 assert.deepEqual(flagReasons({ is_group: 1, tag: 0, text: 'नीरज जी का भुगतान' }), ['neeraj', 'payment']);
+for (const n of ['Niraj ji', 'niraj sir', 'Neraj bhai', 'NEERAJ', 'Nieraj', 'Neeraaj', 'निरज जी']) assert.deepEqual(flagReasons({ is_group: 0, tag: 0, text: n + ' dekh lo' }), ['neeraj'], n);
+assert.deepEqual(flagReasons({ is_group: 0, tag: 0, text: 'Viraj aur Dhiraj aaye' }), [], 'other names');
 assert.deepEqual(flagReasons({ is_group: 1, tag: 0, text: 'dispatch ho gaya, payment terms as per PO', from_me: 1 }), [], 'own messages never');
 assert.deepEqual(flagReasons({ is_group: 1, tag: 0, text: 'gaadi gate pe hai' }), []);
 // Messages stored before the list existed are checked once on the next load.

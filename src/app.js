@@ -47,7 +47,8 @@ const TASKSYS_RE = /tools\.xpertpack\.in\/tasks|\bwas due on\b[\s\S]*\bclose it\
 export const OWNERS = [
   { name: 'Anant Sir', phones: ['8447731703'] },
   { name: 'Hitesh Sir', phones: ['8447731702'] },
-  { name: 'Raj Kumar Sir', phones: ['8383828836', '8447731707'] }
+  { name: 'Raj Kumar Sir', phones: ['8383828836', '8447731707'] },
+  { name: '+91 96677 99416', phones: ['9667799416'] }
 ];
 export function ownerOf(phone) {
   const d = String(phone || '').replace(/\D/g, '').slice(-10);
@@ -471,7 +472,7 @@ async function selfFilter(env) {
 // when it is opened (getChat) — on a busy day the full set would be megabytes on a phone.
 // Messages stored before the Zaroori list existed (or before a rule changed) get checked once.
 // FLAGS_VERSION goes up whenever flagReasons changes, so old messages are re-checked against it.
-const FLAGS_VERSION = '4';
+const FLAGS_VERSION = '5';
 async function backfillFlags(env) {
   if ((await getSetting(env, 'flags_version')) === FLAGS_VERSION) return;
   let me = { ids: [], nums: [] };

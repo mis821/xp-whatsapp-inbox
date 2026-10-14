@@ -232,6 +232,7 @@ assert.deepEqual(flagReasons({ is_group: 0, tag: 1, text: REM, sender_phone: '91
 assert.equal(taskKey(REM), 'k0tIhWwvjSbeNvSP');
 assert.equal(ownerOf('+91 84477 31702'), 'Hitesh Sir');
 assert.equal(ownerOf('918447731707'), 'Raj Kumar Sir');
+assert.equal(ownerOf('919667799416'), '+91 96677 99416');
 assert.equal(ownerOf('919999900000'), '');
 assert.deepEqual(flagReasons({ is_group: 1, tag: 0, text: 'kal meeting hai', sender_phone: '918383828836' }), ['owner']);
 // an owner in a LID group: phone found through the contact list

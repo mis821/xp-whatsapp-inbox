@@ -17,7 +17,7 @@ Cloudflare Workers, with data in a Cloudflare D1 database (free plan).
 ## Record and backup
 - **Deleted on WhatsApp → deleted here.** A message deleted for everyone, a message you delete for yourself, or a whole chat you delete disappears from every tab, the report and the export. WhatsApp Web reports deletions live and re-checks every 30 minutes and on each reload (chats active in the last 7 days, and chats with listed items further back). Work List items you created yourself stay. A removed message is kept in a hidden trash for 30 days only, in case of a mistake.
 - Every message that has ever been on a list, every Work List item and every reply is kept permanently; only ordinary chat messages are cleared after 30 days.
-- **📊 Report** shows, per month, what came in and what was handled, response times and what is open now. Both lists download as Excel (CSV).
+- **📊 Report** shows, per month, what came in and what was handled, response times and what is open now. Both lists download as Excel (CSV). On the **Priority** tab, **⬇ Payment list (Excel)** downloads every group (or contact name with mobile number, for direct chats) that still has a pending payment item; once you mark its items ✓ Done it drops off the list.
 - The **Backup** workflow exports the full database every night (kept 90 days under Actions → Backup → Artifacts). Cloudflare D1 additionally keeps 30 days of point-in-time history.
 
 ## Lock and fingerprint sign-in

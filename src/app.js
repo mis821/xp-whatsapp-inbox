@@ -1082,6 +1082,35 @@ async function exportCsv(env, which) {
   return '\ufeff' + rows.map(r => r.map(csvCell).join(',')).join('\r\n');
 }
 
+// One row per chat that still has an open Priority payment item; marking the items done drops the chat.
+export function paymentChats(rows) {
+  const by = {};
+  rows.forEach(f => {
+    const r = String(f.reasons || '').split(' ');
+    if (f.done_at || r.indexOf('payment') === -1 || kindOf(f.reasons) !== 'zaroori') return;
+    const group = /@g\.us$/.test(String(f.chat));
+    let name;
+    if (group) name = f.chat_name || 'Group …' + String(f.chat).split('@')[0].slice(-6);
+    else {
+      const phone = digits(f.chat) || (f.from_me ? '' : f.sender_phone) || '';
+      const who = f.chat_name || (f.from_me ? '' : f.sender_name) || '';
+      name = phone ? (who && who.replace(/\D/g, '') !== phone ? who + ' (+' + phone + ')' : '+' + phone) : (who || prettyJid(f.chat));
+    }
+    const c = by[f.chat] || (by[f.chat] = { name, type: group ? 'Group' : 'Direct', count: 0, latest: 0 });
+    c.count++;
+    if (f.t > c.latest) c.latest = f.t;
+  });
+  return Object.values(by).sort((a, b) => b.latest - a.latest);
+}
+async function exportPayments(env) {
+  const r = (await env.DB.prepare(
+    'SELECT f.chat, f.t, f.reasons, f.done_at, m.from_me, m.sender_name, m.sender_phone, c.name AS chat_name ' +
+    'FROM flags f LEFT JOIN messages m ON m.id = f.msg_id LEFT JOIN chats c ON c.jid = f.chat WHERE f.done_at IS NULL').all()).results;
+  const rows = [['Group / chat', 'Type', 'Pending payment messages', 'Latest message']]
+    .concat(paymentChats(r).map(c => [c.name, c.type, c.count, istTime(c.latest)]));
+  return '\ufeff' + rows.map(r => r.map(csvCell).join(',')).join('\r\n');
+}
+
 // ===================================================================
 // Names sync (cron + button)
 // ===================================================================
@@ -1575,6 +1604,12 @@ export function makeWorker(inboxHtml, userScript, coreScript) {
           const token = await secretSetting(env, 'webhook_token');
           return new Response(String(userScript || '').replace('__ENDPOINT__', url.origin + '/webhook?token=' + token),
             { headers: Object.assign({ 'Content-Type': 'text/javascript; charset=utf-8' }, SEC_HEADERS) });
+        }
+        if (p === '/export/payments.csv' && req.method === 'GET') {
+          if (!authed) return loginPage(env, '');
+          return new Response(await exportPayments(env), { headers: Object.assign({
+            'Content-Type': 'text/csv; charset=utf-8',
+            'Content-Disposition': 'attachment; filename="xp-payments-' + dayKey(Date.now()) + '.csv"' }, SEC_HEADERS) });
         }
         if ((p === '/export/items.csv' || p === '/export/worklist.csv') && req.method === 'GET') {
           if (!authed) return loginPage(env, '');

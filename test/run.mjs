@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { makeD1 } from './d1.mjs';
-import { makeWorker, dayKey, parseKaam, shortParty, briefText, flagReasons, ownerOf, taskKey } from '../src/app.js';
+import { makeWorker, dayKey, parseKaam, shortParty, briefText, flagReasons, ownerOf, taskKey, paymentChats } from '../src/app.js';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const ME_PN = '919999900000', ME_LID = '123450000000001';
@@ -315,6 +315,20 @@ const csv = await (await req('/export/items.csv', { headers: { cookie } })).text
 assert.ok(csv.replace(/^\ufeff/, '').startsWith('Received,List,Why') && /Task List/.test(csv) && /Priority/.test(csv));
 assert.ok(/"'=SUM/.test(await (await req('/export/worklist.csv', { headers: { cookie } })).text()), 'formula-looking text defused for Excel');
 assert.match(await (await req('/export/items.csv')).text(), /password/, 'export needs login');
+const pcsv = await (await req('/export/payments.csv', { headers: { cookie } })).text();
+assert.ok(pcsv.replace(/^\ufeff/, '').startsWith('Group / chat,Type,Pending payment messages'));
+assert.match(await (await req('/export/payments.csv')).text(), /password/, 'payment list needs login');
+{
+  const pc = paymentChats([
+    { chat: 'A@g.us', chat_name: 'XPP | AJIT INDUSTRY', reasons: 'payment', t: 5 },
+    { chat: 'A@g.us', chat_name: 'XPP | AJIT INDUSTRY', reasons: 'payment tag', t: 9 },
+    { chat: 'B@g.us', chat_name: 'XPP | Done Co', reasons: 'payment', t: 7, done_at: 8 },
+    { chat: 'C@g.us', chat_name: 'Owner chat', reasons: 'payment owner', t: 7 },
+    { chat: 'D@g.us', chat_name: 'Mentions only', reasons: 'tag', t: 7 },
+    { chat: '919811100000@s.whatsapp.net', sender_name: 'Ramesh', sender_phone: '919811100000', reasons: 'payment', t: 3 }]);
+  assert.deepEqual(pc.map(c => [c.name, c.type, c.count]),
+    [['XPP | AJIT INDUSTRY', 'Group', 2], ['Ramesh (+919811100000)', 'Direct', 1]], 'payment list: open Priority payments, one row per chat');
+}
 // nightly clean-up keeps every listed message, ticked or not
 env.DB.raw.prepare("UPDATE messages SET received_at = ? WHERE id = 'Z1'").run(now - 60 * 86400000);
 await worker.scheduled({ cron: '0 21 * * *' }, env, ctx);

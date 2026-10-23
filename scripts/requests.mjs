@@ -89,7 +89,8 @@ if (ACTION === 'list') {
     try {
       const meta = await wa('GET', '/groups/' + encodeURIComponent(hits[0].jid) + '/metadata');
       const people = (meta && meta.participants) || [];
-      const me = people.find(p => JSON.stringify(p).includes(phone));
+      const alt = (process.env.NAME || '').trim(); // optional second id to match, e.g. the person's @lid
+      const me = people.find(p => { const t = JSON.stringify(p); return t.includes(phone) || (alt && t.includes(alt)); });
       results.push({ name, jid: hits[0].jid, subject: meta && meta.subject, members: people.length, inGroup: !!me, entry: me || null });
     } catch (e) {
       results.push({ name, jid: hits[0].jid, error: e.message });

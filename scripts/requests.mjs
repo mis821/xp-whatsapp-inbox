@@ -4,6 +4,7 @@
 //   ACTION=sessions SESSIONS='[{"id","title","updated"}]' → the conversations offered on the dashboard
 //   ACTION=groups                          → every WhatsApp group name, as JSON (read only)
 //   ACTION=rename GROUP=… NAME=…           → rename one WhatsApp group (exact current name) through WaSender
+//   ACTION=addmember GROUP='["name",…]' PHONE=… → add one number to each listed group (exact names) through WaSender
 import { execFileSync } from 'node:child_process';
 
 const STATUSES = ['asked', 'working', 'done', 'failed'];
@@ -12,6 +13,20 @@ function d1(command) {
   const out = execFileSync('wrangler', ['d1', 'execute', 'xp_wa_inbox', '--remote', '--json', '--command', command], { encoding: 'utf8' });
   const j = JSON.parse(out.slice(out.indexOf('[')));
   return (Array.isArray(j) ? j[0] : j).results || [];
+}
+
+async function wa(method, path, payload) {
+  if (!process.env.WASENDER_API_KEY) throw new Error('WASENDER_API_KEY is not set');
+  const res = await fetch('https://www.wasenderapi.com/api' + path, {
+    method,
+    headers: { Authorization: 'Bearer ' + process.env.WASENDER_API_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const text = await res.text();
+  let body = {};
+  try { body = JSON.parse(text); } catch (e) { body = {}; }
+  if (!res.ok || body.success === false) throw new Error('WaSender ' + res.status + ': ' + (body.message || text.slice(0, 300)));
+  return body.data !== undefined ? body.data : body;
 }
 
 const { ACTION, ID = '', STATUS = '', REPLY = '' } = process.env;
@@ -42,18 +57,27 @@ if (ACTION === 'list') {
   const hits = d1(`SELECT jid, name FROM chats WHERE kind = 'group' AND TRIM(name) = ${sql(from)}`);
   if (hits.length !== 1) throw new Error(`Expected exactly one group named "${from}", found ${hits.length}`);
   const { jid } = hits[0];
-  if (!process.env.WASENDER_API_KEY) throw new Error('WASENDER_API_KEY is not set');
-  const res = await fetch('https://www.wasenderapi.com/api/groups/' + encodeURIComponent(jid) + '/settings', {
-    method: 'PUT',
-    headers: { Authorization: 'Bearer ' + process.env.WASENDER_API_KEY, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ subject: to }),
-  });
-  const text = await res.text();
-  let body = {};
-  try { body = JSON.parse(text); } catch (e) { body = {}; }
-  if (!res.ok || body.success === false) throw new Error('WaSender ' + res.status + ': ' + (body.message || text.slice(0, 300)));
+  await wa('PUT', '/groups/' + encodeURIComponent(jid) + '/settings', { subject: to });
   d1(`UPDATE chats SET name = ${sql(to)} WHERE jid = ${sql(jid)}`);
   console.log('RENAMED ' + JSON.stringify({ jid, from, to }));
+} else if (ACTION === 'addmember') {
+  const names = JSON.parse(process.env.GROUP || '[]').map(n => String(n).trim()).filter(Boolean);
+  const phone = (process.env.PHONE || '').replace(/\D/g, '');
+  if (!names.length || names.length > 50) throw new Error('GROUP must be a JSON list of 1 to 50 group names');
+  if (!/^\d{10,15}$/.test(phone)) throw new Error('PHONE must be a number with country code, e.g. 919876543210');
+  const results = [];
+  for (const name of names) {
+    const hits = d1(`SELECT jid FROM chats WHERE kind = 'group' AND TRIM(name) = ${sql(name)}`);
+    if (hits.length !== 1) { results.push({ name, ok: false, note: `found ${hits.length} groups with this name` }); continue; }
+    try {
+      const data = await wa('POST', '/groups/' + encodeURIComponent(hits[0].jid) + '/participants/add', { participants: [phone] });
+      results.push({ name, ok: true, note: JSON.stringify(data).slice(0, 300) });
+    } catch (e) {
+      results.push({ name, ok: false, note: e.message });
+    }
+    await new Promise(r => setTimeout(r, 3000));
+  }
+  console.log('ADDMEMBER_JSON ' + JSON.stringify(results));
 } else {
-  throw new Error('ACTION must be list, update, sessions, groups or rename');
+  throw new Error('ACTION must be list, update, sessions, groups, rename or addmember');
 }

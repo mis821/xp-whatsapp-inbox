@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: list, update, sessions, groups or rename
+        description: list, update, sessions, groups, rename or addmember
         required: true
         default: list
       id:
@@ -21,10 +21,13 @@ on:
         description: JSON list of conversations [{"id","title"}] (sessions only)
         required: false
       group:
-        description: Current group name, exactly (rename only)
+        description: Current group name, exactly (rename); JSON list of names (addmember)
         required: false
       name:
         description: New group name (rename only)
+        required: false
+      phone:
+        description: Number with country code (addmember only)
         required: false
 
 jobs:
@@ -58,4 +61,5 @@ jobs:
           SESSIONS: ${{ inputs.sessions }}
           GROUP: ${{ inputs.group }}
           NAME: ${{ inputs.name }}
+          PHONE: ${{ inputs.phone }}
         run: node scripts/requests.mjs

@@ -95,7 +95,7 @@ if (ACTION === 'list') {
     } catch (e) {
       results.push({ name, jid: hits[0].jid, error: e.message });
     }
-    await new Promise(r => setTimeout(r, 1500));
+    await new Promise(r => setTimeout(r, 6000));
   }
   console.log('CHECKMEMBER_JSON ' + JSON.stringify(results));
 } else {

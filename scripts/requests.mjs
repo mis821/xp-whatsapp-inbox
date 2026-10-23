@@ -5,6 +5,7 @@
 //   ACTION=groups                          → every WhatsApp group name, as JSON (read only)
 //   ACTION=rename GROUP=… NAME=…           → rename one WhatsApp group (exact current name) through WaSender
 //   ACTION=addmember GROUP='["name",…]' PHONE=… → add one number to each listed group (exact names) through WaSender
+//   ACTION=checkmember GROUP='["name",…]' PHONE=… → whether that number is in each listed group now (read only)
 import { execFileSync } from 'node:child_process';
 
 const STATUSES = ['asked', 'working', 'done', 'failed'];
@@ -20,7 +21,7 @@ async function wa(method, path, payload) {
   const res = await fetch('https://www.wasenderapi.com/api' + path, {
     method,
     headers: { Authorization: 'Bearer ' + process.env.WASENDER_API_KEY, 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: payload ? JSON.stringify(payload) : undefined,
   });
   const text = await res.text();
   let body = {};
@@ -78,6 +79,24 @@ if (ACTION === 'list') {
     await new Promise(r => setTimeout(r, 3000));
   }
   console.log('ADDMEMBER_JSON ' + JSON.stringify(results));
+} else if (ACTION === 'checkmember') {
+  const names = JSON.parse(process.env.GROUP || '[]').map(n => String(n).trim()).filter(Boolean);
+  const phone = (process.env.PHONE || '').replace(/\D/g, '');
+  const results = [];
+  for (const name of names) {
+    const hits = d1(`SELECT jid FROM chats WHERE kind = 'group' AND TRIM(name) = ${sql(name)}`);
+    if (hits.length !== 1) { results.push({ name, found: hits.length }); continue; }
+    try {
+      const meta = await wa('GET', '/groups/' + encodeURIComponent(hits[0].jid) + '/metadata');
+      const people = (meta && meta.participants) || [];
+      const me = people.find(p => JSON.stringify(p).includes(phone));
+      results.push({ name, jid: hits[0].jid, subject: meta && meta.subject, members: people.length, inGroup: !!me, entry: me || null });
+    } catch (e) {
+      results.push({ name, jid: hits[0].jid, error: e.message });
+    }
+    await new Promise(r => setTimeout(r, 1500));
+  }
+  console.log('CHECKMEMBER_JSON ' + JSON.stringify(results));
 } else {
-  throw new Error('ACTION must be list, update, sessions, groups, rename or addmember');
+  throw new Error('ACTION must be list, update, sessions, groups, rename, addmember or checkmember');
 }

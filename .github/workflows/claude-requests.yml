@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: list, update or sessions
+        description: list, update, sessions or groups
         required: true
         default: list
       id:

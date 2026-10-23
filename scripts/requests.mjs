@@ -2,6 +2,7 @@
 //   ACTION=list                            → open requests (new / asked / working), as JSON
 //   ACTION=update ID=… STATUS=… REPLY=…    → set a request's status and Claude's note
 //   ACTION=sessions SESSIONS='[{"id","title","updated"}]' → the conversations offered on the dashboard
+//   ACTION=groups                          → every WhatsApp group name, as JSON (read only)
 import { execFileSync } from 'node:child_process';
 
 const STATUSES = ['asked', 'working', 'done', 'failed'];
@@ -30,6 +31,9 @@ if (ACTION === 'list') {
   if (!list.length) throw new Error('No conversations given');
   d1(`INSERT INTO settings (k, v) VALUES ('claude_sessions', ${sql(JSON.stringify(list))}) ON CONFLICT(k) DO UPDATE SET v = excluded.v`);
   console.log('sessions', list.length);
+} else if (ACTION === 'groups') {
+  const rows = d1("SELECT name FROM chats WHERE kind = 'group' AND name IS NOT NULL ORDER BY name COLLATE NOCASE");
+  console.log('GROUPS_JSON ' + JSON.stringify(rows.map(r => r.name)));
 } else {
-  throw new Error('ACTION must be list, update or sessions');
+  throw new Error('ACTION must be list, update, sessions or groups');
 }

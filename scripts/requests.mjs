@@ -62,21 +62,32 @@ if (ACTION === 'list') {
   d1(`UPDATE chats SET name = ${sql(to)} WHERE jid = ${sql(jid)}`);
   console.log('RENAMED ' + JSON.stringify({ jid, from, to }));
 } else if (ACTION === 'addmember') {
-  const names = JSON.parse(process.env.GROUP || '[]').map(n => String(n).trim()).filter(Boolean);
+  const names = [...new Set(JSON.parse(process.env.GROUP || '[]').map(n => String(n).trim()).filter(Boolean))];
   const phone = (process.env.PHONE || '').replace(/\D/g, '');
-  if (!names.length || names.length > 50) throw new Error('GROUP must be a JSON list of 1 to 50 group names');
+  if (!names.length || names.length > 60) throw new Error('GROUP must be a JSON list of 1 to 60 group names');
   if (!/^\d{10,15}$/.test(phone)) throw new Error('PHONE must be a number with country code, e.g. 919876543210');
+  const pause = ms => new Promise(r => setTimeout(r, ms));
   const results = [];
   for (const name of names) {
+    // Two groups can share a name (the same supplier twice); add to each of them.
     const hits = d1(`SELECT jid FROM chats WHERE kind = 'group' AND TRIM(name) = ${sql(name)}`);
-    if (hits.length !== 1) { results.push({ name, ok: false, note: `found ${hits.length} groups with this name` }); continue; }
-    try {
-      const data = await wa('POST', '/groups/' + encodeURIComponent(hits[0].jid) + '/participants/add', { participants: [phone] });
-      results.push({ name, ok: true, note: JSON.stringify(data).slice(0, 300) });
-    } catch (e) {
-      results.push({ name, ok: false, note: e.message });
+    if (!hits.length) { results.push({ name, ok: false, note: 'no group with this name' }); continue; }
+    for (const { jid } of hits) {
+      const path = '/groups/' + encodeURIComponent(jid) + '/participants/add';
+      let r;
+      for (let attempt = 0; attempt < 3 && !r; attempt++) {
+        try {
+          const data = await wa('POST', path, { participants: [phone] });
+          const status = String((Array.isArray(data) && data[0] && data[0].status) || '');
+          r = { name, jid, ok: status === '200' || status === '', note: status };
+        } catch (e) {
+          if (/ 429:/.test(e.message) && attempt < 2) { await pause(30000); continue; }
+          r = { name, jid, ok: false, note: e.message.slice(0, 200) };
+        }
+      }
+      results.push(r);
+      await pause(8000);   // go slowly: many adds in a row can get the number flagged by WhatsApp
     }
-    await new Promise(r => setTimeout(r, 3000));
   }
   console.log('ADDMEMBER_JSON ' + JSON.stringify(results));
 } else if (ACTION === 'checkmember') {

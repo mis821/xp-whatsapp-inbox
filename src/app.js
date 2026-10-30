@@ -31,6 +31,13 @@ const TASK_TYPES = ['Payment', 'Material', 'Follow-up', 'Reply', 'Other'];
 const TEAMS = ['Self', 'Accounts', 'Store', 'Purchase', 'Production', 'Quality', 'Dispatch'];
 const KAAM_RE = /^\s*#(kaam|task|todo)\b/i;
 
+// When someone @mentions the office number in a `from` group, the message is forwarded to the `to`
+// group, tagging the people there who follow it up. Groups are matched by name.
+const FORWARD_RULES = [
+  { from: 'PPC + PURCHASE', to: 'Purchase Team Internal', tag: ['917728803054', '918005905034'] }
+];
+const FORWARD_FRESH_MS = 15 * 60000;  // older messages are a page reload re-sending history, not news
+
 // What makes a message "zaroori". Checked on the text as sent (before @digits are turned into names).
 // Neeraj in the spellings people actually type: Neeraj, Niraj, Neraj, Nieraj, Niiraj, Neeraaj …
 const NEERAJ_RE = /\bn(?:ee|ii|ie|i|e)raa?j|नीरज|निरज|नीराज/i;
@@ -282,9 +289,12 @@ export function rowsFrom(body, now) {
 export function isTag(r, me) {
   if (r.from_me) return false;
   if (!r.is_group) return true;
-  const { ids, nums } = me;
+  if (r.reply_to && me.ids.indexOf(bare(r.reply_to)) !== -1) return true;
+  return mentionsMe(r, me);
+}
+// An @mention of the office number, by phone or by LID.
+function mentionsMe(r, { ids, nums }) {
   if (String(r.mentions || '').split(',').some(j => j && ids.indexOf(bare(j.trim())) !== -1)) return true;
-  if (r.reply_to && ids.indexOf(bare(r.reply_to)) !== -1) return true;
   return nums.some(n => n && String(r.text || '').indexOf('@' + n) !== -1);
 }
 
@@ -347,6 +357,8 @@ export async function ingest(env, rows, waitUntil) {
       "name = CASE WHEN excluded.kind = 'group' THEN COALESCE(excluded.name, chats.name) ELSE COALESCE(chats.name, excluded.name) END"
     ).bind(JSON.stringify(Object.values(chats)))
   ]);
+
+  await queueForwards(env, rows, me, knownNames);
 
   // "#kaam …" from the office number → a task, once per message.
   for (const r of rows) {
@@ -829,7 +841,7 @@ async function outboxClaim(env) {
     .bind(now - 120000).run();
   const r = await env.DB.prepare(
     "UPDATE outbox SET status = 'sending', claimed_at = ? WHERE id IN (SELECT id FROM outbox WHERE status = 'pending' AND created > ? " +
-    'ORDER BY created LIMIT 5) RETURNING id, chat, quote, text').bind(now, now - DAY).all();
+    'ORDER BY created LIMIT 5) RETURNING id, chat, quote, text, fwd_chat, fwd_msg, mentions, copy').bind(now, now - DAY).all();
   return r.results || [];
 }
 async function outboxAck(env, body) {
@@ -845,6 +857,37 @@ async function outboxOut(env) {
   ).bind(Date.now() - 2 * DAY).all();
   return r.results.map(o => ({ id: o.id, created: o.created, chat: o.chat, quote: o.quote || '', text: o.text,
     status: o.status, via: o.via || '', sentAt: o.sent_at || 0, error: o.error || '' }));
+}
+
+// ===================================================================
+// Automatic forwards (FORWARD_RULES)
+// ===================================================================
+// Queued in the outbox for WhatsApp Web, once per message: the outbox id is made from the message
+// id, so a page reload sending the same message again changes nothing.
+async function queueForwards(env, rows, me, knownNames) {
+  const norm = s => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const fresh = Date.now() - FORWARD_FRESH_MS;
+  for (const r of rows) {
+    if (!r.is_group || r.from_me || !(r.t > fresh) || !mentionsMe(r, me)) continue;
+    const fromName = r.chat_name || knownNames[r.chat] || '';
+    const rule = FORWARD_RULES.find(f => norm(f.from) === norm(fromName));
+    if (!rule) continue;
+    const to = (await env.DB.prepare("SELECT jid FROM chats WHERE kind = 'group' AND LOWER(TRIM(name)) = ?")
+      .bind(norm(rule.to)).all()).results;
+    if (to.length !== 1) continue;   // the group is missing, or two groups share the name
+    const who = r.sender_name || (r.sender_phone ? '+' + r.sender_phone : prettyJid(bare(r.sender)));
+    const at = new Date(r.t + IST).toISOString().slice(11, 16);
+    const tags = rule.tag.map(n => '@' + n).join(' ');
+    const ask = 'Please reply in the *' + rule.from + '* group about this issue and get it resolved.';
+    // The copy drops the raw "@<number>" of the office number itself; the forward shows it properly.
+    const said = me.nums.reduce((s, n) => s.split('@' + n).join(''), String(r.text || '')).replace(/[ \t]{2,}/g, ' ').trim() ||
+      '[' + (r.type || 'message') + ']';
+    const note = tags + ' ' + who + ' tagged the office number in *' + rule.from + '* at ' + at + ' (message above). ' + ask;
+    const copy = tags + ' ' + who + ' tagged the office number in *' + rule.from + '* at ' + at + ':\n\n' +
+      said.split('\n').map(l => '> ' + l).join('\n') + '\n\n' + ask;
+    await env.DB.prepare('INSERT OR IGNORE INTO outbox (id, created, chat, text, fwd_chat, fwd_msg, mentions, copy) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind('F' + r.id, Date.now(), to[0].jid, note, r.chat, r.id, rule.tag.join(','), copy).run();
+  }
 }
 
 // ===================================================================
@@ -993,7 +1036,7 @@ async function getReport(env, month) {
   const tasks = (await env.DB.prepare(
     "SELECT created, done_at, status, due FROM tasks WHERE status != 'Cancelled' AND ((created >= ? AND created < ?) OR (done_at >= ? AND done_at < ?))"
   ).bind(start, end, start, end).all()).results;
-  const replies = (await env.DB.prepare("SELECT sent_at FROM outbox WHERE status = 'sent' AND sent_at >= ? AND sent_at < ?")
+  const replies = (await env.DB.prepare("SELECT sent_at FROM outbox WHERE status = 'sent' AND fwd_msg IS NULL AND sent_at >= ? AND sent_at < ?")
     .bind(start, end).all()).results;
 
   const days = {};

@@ -203,6 +203,20 @@
     async function sendOne(item) {
       var chatId = waChatId(item.chat);
       var opts = {};
+      if (item.mentions) opts.mentionedList = String(item.mentions).split(',').filter(Boolean).map(function (n) { return n + '@c.us'; });
+      // An automatic forward: the original message, then the note under it. If the original cannot
+      // be found or forwarded, the note with the message quoted in it goes instead.
+      if (item.fwd_msg) {
+        var forwarded = false;
+        try {
+          var src = await WPP.chat.getMessages(waChatId(item.fwd_chat), { count: 400 });
+          for (var j = 0; j < src.length; j++) {
+            if (src[j].id && src[j].id.id === item.fwd_msg) { await WPP.chat.forwardMessage(chatId, src[j].id); forwarded = true; break; }
+          }
+        } catch (e) { /* send the copy instead */ }
+        await WPP.chat.sendTextMessage(chatId, forwarded ? item.text : (item.copy || item.text), opts);
+        return;
+      }
       if (item.quote) {
         try {
           var msgs = await WPP.chat.getMessages(chatId, { count: 400 });

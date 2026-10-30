@@ -300,6 +300,29 @@ await req(obUrl);
 d = await rpc('getWaInbox', 2);
 assert.equal(d.outbox.find(o => o.id === q3.id).status, 'failed');
 
+// Automatic forward: an @mention of the office number in PPC + PURCHASE goes to Purchase Team Internal, once.
+{
+  const P = (id, extra) => Object.assign({ id, t: Date.now() - 60000, chat: 'PPC@g.us', chat_name: 'PPC + PURCHASE', from_me: 0,
+    sender: '918888800002@s.whatsapp.net', sender_phone: '918888800002', sender_name: 'Sunil PPC', type: 'text',
+    text: '@' + ME_LID + ' reel stock short hai', mentions: ME_LID + '@lid', reply_to: '' }, extra);
+  await post({ event: 'xp.rows', data: { rows: [
+    { id: 'PTI0', t: Date.now() - 120000, chat: 'PTI@g.us', chat_name: 'Purchase Team Internal', from_me: 0,
+      sender: '917728803054@s.whatsapp.net', sender_phone: '917728803054', type: 'text', text: 'ok' },
+    P('PF1'),
+    P('PF2', { text: 'no tag here', mentions: '' }),
+    P('PF3', { t: Date.now() - 3600000 }),                        // an hour old: history re-sent on a page reload
+    P('PF4', { chat: 'FWOTHER@g.us', chat_name: 'Forward Test Other' }),
+    P('PF5', { from_me: 1 }),
+    P('PF6', { mentions: '', reply_to: ME_LID + '@lid', text: 'replying to the office number' })] } });
+  await post({ event: 'xp.rows', data: { rows: [P('PF1')] } });   // the same message again: still one forward
+  const fw = (await (await req(obUrl)).json()).items.filter(i => i.fwd_msg);
+  assert.deepEqual(fw.map(i => [i.id, i.chat, i.fwd_chat, i.fwd_msg, i.mentions]),
+    [['FPF1', 'PTI@g.us', 'PPC@g.us', 'PF1', '917728803054,918005905034']], 'only a fresh @mention in that group, once');
+  assert.match(fw[0].text, /^@917728803054 @918005905034 Sunil PPC tagged the office number in \*PPC \+ PURCHASE\* at \d\d:\d\d \(message above\)\. Please reply in the \*PPC \+ PURCHASE\* group about this issue and get it resolved\.$/);
+  assert.match(fw[0].copy, /at \d\d:\d\d:\n\n> reel stock short hai\n\nPlease reply in the/);
+  await req(obUrl, { method: 'POST', body: JSON.stringify({ id: 'FPF1', ok: true }) });
+}
+
 // Detail panel: the message in full plus the conversation around it.
 const cx = await rpc('getWaContext', 'Z2');
 assert.equal(cx.msg.text, 'Neeraj sir se baat ho gayi');

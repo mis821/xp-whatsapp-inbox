@@ -6,6 +6,7 @@
 //   ACTION=rename GROUP=… NAME=…           → rename one WhatsApp group (exact current name) through WaSender
 //   ACTION=addmember GROUP='["name",…]' PHONE=… → add one number to each listed group (exact names) through WaSender
 //   ACTION=checkmember GROUP='["name",…]' PHONE=… → whether that number is in each listed group now (read only)
+//   ACTION=admins GROUP='["name",…]'      → whether the office number is an admin of each listed group (read only)
 import { execFileSync } from 'node:child_process';
 
 const STATUSES = ['asked', 'working', 'done', 'failed'];
@@ -29,6 +30,9 @@ async function wa(method, path, payload) {
   if (!res.ok || body.success === false) throw new Error('WaSender ' + res.status + ': ' + (body.message || text.slice(0, 300)));
   return body.data !== undefined ? body.data : body;
 }
+
+// WaSender answers this when the WhatsApp session is logged out; every later call would fail the same way.
+const offline = e => /not connected/i.test(e.message);
 
 const { ACTION, ID = '', STATUS = '', REPLY = '' } = process.env;
 if (ACTION === 'list') {
@@ -82,6 +86,7 @@ if (ACTION === 'list') {
           r = { name, jid, ok: status === '200' || status === '', note: status };
         } catch (e) {
           if (/ 429:/.test(e.message) && attempt < 2) { await pause(30000); continue; }
+          if (offline(e)) { console.log('ADDMEMBER_JSON ' + JSON.stringify(results)); throw new Error('Stopped at "' + name + '": ' + e.message); }
           r = { name, jid, ok: false, note: e.message.slice(0, 200) };
         }
       }
@@ -109,6 +114,30 @@ if (ACTION === 'list') {
     await new Promise(r => setTimeout(r, 6000));
   }
   console.log('CHECKMEMBER_JSON ' + JSON.stringify(results));
+} else if (ACTION === 'admins') {
+  const names = [...new Set(JSON.parse(process.env.GROUP || '[]').map(n => String(n).trim()).filter(Boolean))];
+  if (!names.length || names.length > 300) throw new Error('GROUP must be a JSON list of 1 to 300 group names');
+  const u = await wa('GET', '/user') || {};
+  const mine = [u.id, u.lid].filter(Boolean).map(x => String(x).split('@')[0].split(':')[0]);
+  if (!mine.length) throw new Error('WaSender did not return the office number');
+  const results = [];
+  for (const name of names) {
+    const hits = d1(`SELECT jid FROM chats WHERE kind = 'group' AND TRIM(name) = ${sql(name)}`);
+    if (!hits.length) { results.push({ name, error: 'no group with this name' }); continue; }
+    for (const { jid } of hits) {
+      try {
+        const meta = await wa('GET', '/groups/' + encodeURIComponent(jid) + '/metadata');
+        const people = (meta && meta.participants) || [];
+        const me = people.find(p => { const t = JSON.stringify(p); return mine.some(m => t.includes(m)); });
+        results.push({ name, jid, subject: meta && meta.subject, member: !!me, role: (me && me.admin) || null });
+      } catch (e) {
+        if (offline(e)) { console.log('ADMINS_JSON ' + JSON.stringify(results)); throw new Error('Stopped at "' + name + '": ' + e.message); }
+        results.push({ name, jid, error: e.message.slice(0, 200) });
+      }
+      await new Promise(r => setTimeout(r, 4000));
+    }
+  }
+  console.log('ADMINS_JSON ' + JSON.stringify(results));
 } else {
-  throw new Error('ACTION must be list, update, sessions, groups, rename, addmember or checkmember');
+  throw new Error('ACTION must be list, update, sessions, groups, rename, addmember, checkmember or admins');
 }

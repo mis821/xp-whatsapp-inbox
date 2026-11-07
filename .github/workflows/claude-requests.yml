@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: list, update, sessions, groups, rename, addmember or checkmember
+        description: list, update, sessions, groups, rename, addmember, checkmember or admins
         required: true
         default: list
       id:
@@ -21,7 +21,7 @@ on:
         description: JSON list of conversations [{"id","title"}] (sessions only)
         required: false
       group:
-        description: Current group name, exactly (rename); JSON list of names (addmember, checkmember)
+        description: Current group name, exactly (rename); JSON list of names (addmember, checkmember, admins)
         required: false
       name:
         description: New group name (rename only)

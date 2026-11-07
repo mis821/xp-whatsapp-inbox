@@ -4,7 +4,7 @@
 //   ACTION=sessions SESSIONS='[{"id","title","updated"}]' → the conversations offered on the dashboard
 //   ACTION=groups                          → every WhatsApp group name, as JSON (read only)
 //   ACTION=rename GROUP=… NAME=…           → rename one WhatsApp group (exact current name) through WaSender
-//   ACTION=addmember GROUP='["name",…]' PHONE=… → add one number to each listed group (exact names) through WaSender
+//   ACTION=addmember GROUP='["name",…]' PHONE=… [PAUSE=seconds] → add one number to each listed group (exact names) through WaSender
 //   ACTION=checkmember GROUP='["name",…]' PHONE=… → whether that number is in each listed group now (read only)
 //   ACTION=admins GROUP='["name",…]'      → whether the office number is an admin of each listed group (read only)
 import { execFileSync } from 'node:child_process';
@@ -91,7 +91,8 @@ if (ACTION === 'list') {
         }
       }
       results.push(r);
-      await pause(8000);   // go slowly: many adds in a row can get the number flagged by WhatsApp
+      // Go slowly: many adds in a row can get the number flagged by WhatsApp. PAUSE (seconds) can slow it further.
+      await pause(Math.min(Math.max(Number(process.env.PAUSE) || 8, 8), 120) * 1000);
     }
   }
   console.log('ADDMEMBER_JSON ' + JSON.stringify(results));

@@ -7,6 +7,7 @@
 //   ACTION=addmember GROUP='["name",…]' PHONE=… [PAUSE=seconds] → add one number to each listed group (exact names) through WaSender
 //   ACTION=checkmember GROUP='["name",…]' PHONE=… → whether that number is in each listed group now (read only)
 //   ACTION=admins GROUP='["name",…]'      → whether the office number is an admin of each listed group (read only)
+//   ACTION=status                          → WaSender's own view of the WhatsApp session (read only)
 import { execFileSync } from 'node:child_process';
 
 const STATUSES = ['asked', 'working', 'done', 'failed'];
@@ -115,6 +116,10 @@ if (ACTION === 'list') {
     await new Promise(r => setTimeout(r, 6000));
   }
   console.log('CHECKMEMBER_JSON ' + JSON.stringify(results));
+} else if (ACTION === 'status') {
+  let out;
+  try { out = await wa('GET', '/status'); } catch (e) { out = { error: e.message }; }
+  console.log('STATUS_JSON ' + JSON.stringify(out));
 } else if (ACTION === 'admins') {
   const names = [...new Set(JSON.parse(process.env.GROUP || '[]').map(n => String(n).trim()).filter(Boolean))];
   if (!names.length || names.length > 300) throw new Error('GROUP must be a JSON list of 1 to 300 group names');
@@ -140,5 +145,5 @@ if (ACTION === 'list') {
   }
   console.log('ADMINS_JSON ' + JSON.stringify(results));
 } else {
-  throw new Error('ACTION must be list, update, sessions, groups, rename, addmember, checkmember or admins');
+  throw new Error('ACTION must be list, update, sessions, groups, rename, addmember, checkmember, admins or status');
 }

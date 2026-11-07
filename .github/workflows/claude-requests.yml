@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: list, update, sessions, groups, rename, addmember, checkmember or admins
+        description: list, update, sessions, groups, rename, addmember, checkmember, admins or status
         required: true
         default: list
       id:

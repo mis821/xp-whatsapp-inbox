@@ -181,7 +181,7 @@ if (ACTION === 'list') {
   // Where messages are arriving from (WhatsApp Web = the computer; anything else = the WaSender webhook).
   out.sources = d1(`SELECT IFNULL(event, '') AS event, COUNT(*) AS n, MAX(received_at) AS last FROM messages WHERE received_at > ${Date.now() - 86400000} GROUP BY event`)
     .map(r => ({ event: r.event, n: r.n, last: new Date(r.last).toISOString() }));
-  out.outbox = d1(`SELECT status, IFNULL(via, '') AS via, COUNT(*) AS n FROM outbox WHERE created > ${Date.now() - 86400000} GROUP BY status, via`);
+  out.outbox = d1(`SELECT status, IFNULL(via, '') AS via, COUNT(*) AS n, MAX(IFNULL(error, '')) AS error FROM outbox WHERE created > ${Date.now() - 86400000} GROUP BY status, via`);
   console.log('STATUS_JSON ' + JSON.stringify(out));
 } else if (ACTION === 'admins') {
   const names = [...new Set(JSON.parse(process.env.GROUP || '[]').map(n => String(n).trim()).filter(Boolean))];

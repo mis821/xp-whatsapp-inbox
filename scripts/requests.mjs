@@ -8,7 +8,7 @@
 //   ACTION=checkmember GROUP='["name",…]' PHONE=… → whether that number is in each listed group now (read only)
 //   ACTION=admins GROUP='["name",…]'      → whether the office number is an admin of each listed group (read only)
 //   ACTION=status                          → WaSender's own view of the WhatsApp session (read only)
-//   ACTION=send GROUP='["name",…]' TEXT=… [NAME=image URL] [PAUSE=seconds] → send one message (or image + caption) to each listed group
+//   ACTION=send GROUP='["name",…]' | PHONE=… TEXT=… [NAME=image URL] [PAUSE=seconds] → send one message (or image + caption) to each listed group, or to one number
 import { execFileSync } from 'node:child_process';
 
 const STATUSES = ['asked', 'working', 'done', 'failed'];
@@ -120,14 +120,16 @@ if (ACTION === 'list') {
 } else if (ACTION === 'send') {
   const names = [...new Set(JSON.parse(process.env.GROUP || '[]').map(n => String(n).trim()).filter(Boolean))];
   const text = (process.env.TEXT || '').trim();
-  if (!names.length || names.length > 20) throw new Error('GROUP must be a JSON list of 1 to 20 group names');
+  const phone = (process.env.PHONE || '').replace(/\D/g, '');   // or one person, for a test
+  if (phone ? !/^\d{10,15}$/.test(phone) : (!names.length || names.length > 20)) throw new Error('GROUP must be a JSON list of 1 to 20 group names, or PHONE one number with country code');
   if (!text || text.length > 4000) throw new Error('TEXT must be 1 to 4000 characters');
   const image = (process.env.NAME || '').trim();   // optional: public https URL of an image; TEXT becomes its caption
   if (image && !/^https:\/\/\S+$/.test(image)) throw new Error('NAME (image URL) must be a public https address');
   const pause = ms => new Promise(r => setTimeout(r, ms));
   const results = [];
-  for (const name of names) {
-    const hits = d1(`SELECT jid FROM chats WHERE kind = 'group' AND TRIM(name) = ${sql(name)}`);
+  const targets = phone ? [{ name: '+' + phone, hits: [{ jid: '+' + phone }] }]
+    : names.map(name => ({ name, hits: d1(`SELECT jid FROM chats WHERE kind = 'group' AND TRIM(name) = ${sql(name)}`) }));
+  for (const { name, hits } of targets) {
     if (!hits.length) { results.push({ name, ok: false, note: 'no group with this name' }); continue; }
     for (const { jid } of hits) {
       try {

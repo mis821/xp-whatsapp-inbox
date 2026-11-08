@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: list, update, sessions, groups, rename, addmember, checkmember, admins or status
+        description: list, update, sessions, groups, rename, addmember, checkmember, admins, status or send
         required: true
         default: list
       id:
@@ -21,7 +21,7 @@ on:
         description: JSON list of conversations [{"id","title"}] (sessions only)
         required: false
       group:
-        description: Current group name, exactly (rename); JSON list of names (addmember, checkmember, admins)
+        description: Current group name, exactly (rename); JSON list of names (addmember, checkmember, admins, send)
         required: false
       name:
         description: New group name (rename only)
@@ -30,7 +30,10 @@ on:
         description: Number with country code (addmember, checkmember)
         required: false
       pause:
-        description: Seconds between groups, 8 to 120 (addmember only; default 8)
+        description: Seconds between groups (addmember 8-120, default 8; send 10-120, default 20)
+        required: false
+      text:
+        description: Message text (send only)
         required: false
 
 jobs:
@@ -66,4 +69,5 @@ jobs:
           NAME: ${{ inputs.name }}
           PHONE: ${{ inputs.phone }}
           PAUSE: ${{ inputs.pause }}
+          TEXT: ${{ inputs.text }}
         run: node scripts/requests.mjs

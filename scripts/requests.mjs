@@ -8,6 +8,7 @@
 //   ACTION=checkmember GROUP='["name",…]' PHONE=… → whether that number is in each listed group now (read only)
 //   ACTION=admins GROUP='["name",…]'      → whether the office number is an admin of each listed group (read only)
 //   ACTION=status                          → WaSender's own view of the WhatsApp session (read only)
+//   ACTION=send GROUP='["name",…]' TEXT=… [PAUSE=seconds] → send one text message to each listed group through WaSender
 import { execFileSync } from 'node:child_process';
 
 const STATUSES = ['asked', 'working', 'done', 'failed'];
@@ -116,6 +117,28 @@ if (ACTION === 'list') {
     await new Promise(r => setTimeout(r, 6000));
   }
   console.log('CHECKMEMBER_JSON ' + JSON.stringify(results));
+} else if (ACTION === 'send') {
+  const names = [...new Set(JSON.parse(process.env.GROUP || '[]').map(n => String(n).trim()).filter(Boolean))];
+  const text = (process.env.TEXT || '').trim();
+  if (!names.length || names.length > 20) throw new Error('GROUP must be a JSON list of 1 to 20 group names');
+  if (!text || text.length > 4000) throw new Error('TEXT must be 1 to 4000 characters');
+  const pause = ms => new Promise(r => setTimeout(r, ms));
+  const results = [];
+  for (const name of names) {
+    const hits = d1(`SELECT jid FROM chats WHERE kind = 'group' AND TRIM(name) = ${sql(name)}`);
+    if (!hits.length) { results.push({ name, ok: false, note: 'no group with this name' }); continue; }
+    for (const { jid } of hits) {
+      try {
+        await wa('POST', '/send-message', { to: jid, text });
+        results.push({ name, jid, ok: true });
+      } catch (e) {
+        if (offline(e)) { console.log('SEND_JSON ' + JSON.stringify(results)); throw new Error('Stopped at "' + name + '": ' + e.message); }
+        results.push({ name, jid, ok: false, note: e.message.slice(0, 200) });
+      }
+      await pause(Math.min(Math.max(Number(process.env.PAUSE) || 20, 10), 120) * 1000);
+    }
+  }
+  console.log('SEND_JSON ' + JSON.stringify(results));
 } else if (ACTION === 'status') {
   let out;
   try { out = await wa('GET', '/status'); } catch (e) { out = { error: e.message }; }
@@ -145,5 +168,5 @@ if (ACTION === 'list') {
   }
   console.log('ADMINS_JSON ' + JSON.stringify(results));
 } else {
-  throw new Error('ACTION must be list, update, sessions, groups, rename, addmember, checkmember, admins or status');
+  throw new Error('ACTION must be list, update, sessions, groups, rename, addmember, checkmember, admins, status or send');
 }

@@ -323,6 +323,32 @@ assert.equal(d.outbox.find(o => o.id === q3.id).status, 'failed');
   await req(obUrl, { method: 'POST', body: JSON.stringify({ id: 'FPF1', ok: true }) });
 }
 
+// Festival greeting: a personal Diwali wish gets one quoted reply per person; groups, own messages,
+// other days and people already wished back by hand get none.
+{
+  const T = Date.parse('2026-11-08T10:00:00+05:30');
+  const D = (id, extra) => Object.assign({ id, t: T, chat: '918888800071@s.whatsapp.net', from_me: 0,
+    sender: '918888800071@s.whatsapp.net', sender_phone: '918888800071', sender_name: 'Ramesh', type: 'text',
+    text: 'Happy Diwali sir 🪔', mentions: '', reply_to: '' }, extra);
+  await post({ event: 'xp.rows', data: { rows: [
+    D('GD1'),
+    D('GD2', { text: 'Wish you a very happy Deepawali' }),                        // same person again: still one reply
+    D('GD3', { chat: 'GRP7@g.us', chat_name: 'Some Group', text: 'Happy Diwali all' }),
+    D('GD4', { chat: '918888800072@s.whatsapp.net', sender: '918888800072@s.whatsapp.net', sender_phone: '918888800072', from_me: 1 }),
+    D('GD5', { chat: '918888800073@s.whatsapp.net', sender: '918888800073@s.whatsapp.net', sender_phone: '918888800073', t: Date.parse('2026-10-20T10:00:00+05:30') }),
+    D('GD6', { chat: '918888800074@s.whatsapp.net', sender: '918888800074@s.whatsapp.net', sender_phone: '918888800074', text: 'दीपावली की हार्दिक शुभकामनाएं' }),
+    D('GD7', { chat: '918888800075@s.whatsapp.net', sender: '918888800075@s.whatsapp.net', sender_phone: '918888800075' }),
+    D('GD8', { chat: '918888800075@s.whatsapp.net', sender: '', sender_phone: '', from_me: 1, t: T + 60000, text: 'Happy Diwali to you too!' }),
+    D('GD9', { chat: '918888800076@s.whatsapp.net', sender: '918888800076@s.whatsapp.net', sender_phone: '918888800076', text: 'payment kab tak aayega' })] } });
+  await post({ event: 'xp.rows', data: { rows: [D('GD1')] } });
+  const gr = env.DB.raw.prepare("SELECT id, chat, quote, text FROM outbox WHERE id LIKE 'G:%' ORDER BY id").all();
+  assert.deepEqual(gr.map(o => [o.id, o.chat, o.quote]), [
+    ['G:diwali-2026:918888800071', '918888800071@s.whatsapp.net', 'GD1'],
+    ['G:diwali-2026:918888800074', '918888800074@s.whatsapp.net', 'GD6']], 'one reply per person who wished, quoting the wish');
+  assert.equal(gr[0].text, '🪔 Wishing you and your family a very Happy Diwali🪔');
+  env.DB.raw.prepare("DELETE FROM outbox WHERE id LIKE 'G:%'").run();
+}
+
 // Detail panel: the message in full plus the conversation around it.
 const cx = await rpc('getWaContext', 'Z2');
 assert.equal(cx.msg.text, 'Neeraj sir se baat ho gayi');

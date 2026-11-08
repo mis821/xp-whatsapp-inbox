@@ -38,6 +38,15 @@ const FORWARD_RULES = [
 ];
 const FORWARD_FRESH_MS = 15 * 60000;  // older messages are a page reload re-sending history, not news
 
+// Festival greetings: a personal (not group) message wishing the office number for the festival gets
+// one reply per person, quoting it, if the office number has not already wished them back itself.
+// Only for messages sent between `from` and `until`. Sent by WhatsApp Web through the outbox.
+export const GREETINGS = [
+  { key: 'diwali-2026', from: Date.parse('2026-11-07T00:00:00+05:30'), until: Date.parse('2026-11-12T00:00:00+05:30'),
+    re: /\b(diwali|divali|deewali|diwaali|dipawali|dipavali|deepawali|deepavali|deepawli)\b|दिवाली|दीवाली|दीपावली|दिपावली/i,
+    reply: '🪔 Wishing you and your family a very Happy Diwali🪔' }
+];
+
 // What makes a message "zaroori". Checked on the text as sent (before @digits are turned into names).
 // Neeraj in the spellings people actually type: Neeraj, Niraj, Neraj, Nieraj, Niiraj, Neeraaj …
 const NEERAJ_RE = /\bn(?:ee|ii|ie|i|e)raa?j|नीरज|निरज|नीराज/i;
@@ -359,6 +368,7 @@ export async function ingest(env, rows, waitUntil) {
   ]);
 
   await queueForwards(env, rows, me, knownNames);
+  await queueGreetings(env, rows);
 
   // "#kaam …" from the office number → a task, once per message.
   for (const r of rows) {
@@ -887,6 +897,28 @@ async function queueForwards(env, rows, me, knownNames) {
       said.split('\n').map(l => '> ' + l).join('\n') + '\n\n' + ask;
     await env.DB.prepare('INSERT OR IGNORE INTO outbox (id, created, chat, text, fwd_chat, fwd_msg, mentions, copy) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .bind('F' + r.id, Date.now(), to[0].jid, note, r.chat, r.id, rule.tag.join(','), copy).run();
+  }
+}
+
+// Festival greeting replies (GREETINGS). The outbox id is made from the festival and the person, so
+// each person is answered once however many wishes they send or however often history is re-sent.
+export function greetingFor(r) {
+  if (!r || r.is_group || r.from_me) return null;
+  return GREETINGS.find(g => r.t >= g.from && r.t < g.until && g.re.test(String(r.text || ''))) || null;
+}
+async function queueGreetings(env, rows) {
+  for (const r of rows) {
+    const g = greetingFor(r);
+    if (!g) continue;
+    const person = r.sender_phone || bare(r.chat).split('@')[0];
+    const id = 'G:' + g.key + ':' + person;
+    if (await env.DB.prepare('SELECT 1 AS x FROM outbox WHERE id = ?').bind(id).first()) continue;
+    // Already wished back by hand from the office number? Then nothing to send.
+    const mine = (await env.DB.prepare('SELECT text FROM messages WHERE chat = ? AND from_me = 1 AND t >= ? ORDER BY t LIMIT 50')
+      .bind(r.chat, r.t).all()).results;
+    if (mine.some(m => g.re.test(String(m.text || '')))) continue;
+    await env.DB.prepare('INSERT OR IGNORE INTO outbox (id, created, chat, quote, text) VALUES (?, ?, ?, ?, ?)')
+      .bind(id, Date.now(), r.chat, r.id, g.reply).run();
   }
 }
 

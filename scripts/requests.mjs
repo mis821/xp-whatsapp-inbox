@@ -8,8 +8,11 @@
 //   ACTION=checkmember GROUP='["name",…]' PHONE=… → whether that number is in each listed group now (read only)
 //   ACTION=admins GROUP='["name",…]'      → whether the office number is an admin of each listed group (read only)
 //   ACTION=status                          → WaSender's own view of the WhatsApp session (read only)
+//   ACTION=greet [ID=run]                  → festival wishes already received that GREETINGS would answer;
+//                                            with ID=run, queue those replies in the outbox (WhatsApp Web sends them)
 //   ACTION=send GROUP='["name",…]' | PHONE=… TEXT=… [NAME=image URL] [PAUSE=seconds] → send one message (or image + caption) to each listed group, or to one number
 import { execFileSync } from 'node:child_process';
+import { GREETINGS, greetingFor } from '../src/app.js';
 
 const STATUSES = ['asked', 'working', 'done', 'failed'];
 const sql = s => "'" + String(s).replace(/'/g, "''") + "'";
@@ -143,6 +146,27 @@ if (ACTION === 'list') {
     }
   }
   console.log('SEND_JSON ' + JSON.stringify(results));
+} else if (ACTION === 'greet') {
+  const from = Math.min(...GREETINGS.map(g => g.from)), until = Math.max(...GREETINGS.map(g => g.until));
+  const rows = d1(`SELECT id, t, chat, is_group, from_me, sender_phone, sender_name, text FROM messages WHERE is_group = 0 AND from_me = 0 AND t >= ${from} AND t < ${until} AND IFNULL(text, '') <> '' ORDER BY t`);
+  const seen = new Set(), todo = [];
+  for (const r of rows) {
+    const g = greetingFor(r);
+    if (!g) continue;
+    const person = r.sender_phone || String(r.chat).split('@')[0];
+    const id = 'G:' + g.key + ':' + person;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    if (d1(`SELECT 1 AS x FROM outbox WHERE id = ${sql(id)}`).length) continue;
+    const mine = d1(`SELECT text FROM messages WHERE chat = ${sql(r.chat)} AND from_me = 1 AND t >= ${r.t} ORDER BY t LIMIT 50`);
+    if (mine.some(m => g.re.test(String(m.text || '')))) continue;
+    todo.push({ id, chat: r.chat, quote: r.id, reply: g.reply, name: r.sender_name || '', phone: r.sender_phone || '', said: String(r.text).slice(0, 80) });
+  }
+  if (ID === 'run') {
+    const now = Date.now();
+    for (const o of todo) d1(`INSERT OR IGNORE INTO outbox (id, created, chat, quote, text) VALUES (${sql(o.id)}, ${now}, ${sql(o.chat)}, ${sql(o.quote)}, ${sql(o.reply)})`);
+  }
+  console.log('GREET_JSON ' + JSON.stringify({ queued: ID === 'run', items: todo }));
 } else if (ACTION === 'status') {
   let out;
   try { out = await wa('GET', '/status'); } catch (e) { out = { error: e.message }; }
@@ -172,5 +196,5 @@ if (ACTION === 'list') {
   }
   console.log('ADMINS_JSON ' + JSON.stringify(results));
 } else {
-  throw new Error('ACTION must be list, update, sessions, groups, rename, addmember, checkmember, admins, status or send');
+  throw new Error('ACTION must be list, update, sessions, groups, rename, addmember, checkmember, admins, status, send or greet');
 }

@@ -8,6 +8,11 @@ type = "Text"
 globs = ["**/*.html", "**/*.user.js", "**/wa-core.js"]
 fallthrough = false
 
+[[rules]]
+type = "Data"
+globs = ["**/media/*.jpg"]
+fallthrough = false
+
 [[d1_databases]]
 binding = "DB"
 database_name = "xp_wa_inbox"

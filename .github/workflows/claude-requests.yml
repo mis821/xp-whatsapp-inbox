@@ -24,7 +24,7 @@ on:
         description: Current group name, exactly (rename); JSON list of names (addmember, checkmember, admins, send)
         required: false
       name:
-        description: New group name (rename only)
+        description: New group name (rename); public image URL (send, optional)
         required: false
       phone:
         description: Number with country code (addmember, checkmember)

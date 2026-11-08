@@ -30,15 +30,21 @@ on:
         description: Number with country code (addmember, checkmember)
         required: false
       pause:
-        description: Seconds between groups (addmember 8-120, default 8; send 10-120, default 20)
+        description: Seconds between groups (addmember 8-120, default 8; send 10-120, default 20, or seconds/batch/break)
         required: false
       text:
         description: Message text (send only)
         required: false
 
+# Long send runs wait for each other (never two sends at once); every other run goes straight ahead.
+concurrency:
+  group: ${{ inputs.action == 'send' && 'claude-send' || format('run-{0}', github.run_id) }}
+  cancel-in-progress: false
+
 jobs:
   requests:
     runs-on: ubuntu-latest
+    timeout-minutes: 350
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

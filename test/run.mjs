@@ -346,7 +346,22 @@ assert.equal(d.outbox.find(o => o.id === q3.id).status, 'failed');
     ['G:diwali-2026:918888800071', '918888800071@s.whatsapp.net', 'GD1'],
     ['G:diwali-2026:918888800074', '918888800074@s.whatsapp.net', 'GD6']], 'one reply per person who wished, quoting the wish');
   assert.equal(gr[0].text, '🪔 Wishing you and your family a very Happy Diwali🪔');
-  env.DB.raw.prepare("DELETE FROM outbox WHERE id LIKE 'G:%'").run();
+  // Computer off: after 5 minutes untaken, the 10-minute cron sends them through WaSender, once.
+  env.DB.raw.prepare("UPDATE outbox SET created = ? WHERE id LIKE 'G:%'").run(Date.now() - 6 * 60000);
+  env.DB.raw.prepare("INSERT INTO outbox (id, created, chat, text, fwd_chat, fwd_msg, mentions, copy) VALUES ('FX1', ?, 'PTI@g.us', 'note', 'PPC@g.us', 'PX1', '917728803054', 'the copy')")
+    .run(Date.now() - 6 * 60000);
+  env.DB.raw.prepare("INSERT INTO outbox (id, created, chat, text) VALUES ('RX1', ?, 'G1@g.us', 'a dashboard reply')").run(Date.now() - 6 * 60000);
+  const before = sent.length;
+  await worker.scheduled({ cron: '*/10 * * * *' }, env, ctx);
+  assert.deepEqual(sent.slice(before).map(m => [m.to, m.text]), [
+    ['+918888800071', '🪔 Wishing you and your family a very Happy Diwali🪔'],
+    ['+918888800074', '🪔 Wishing you and your family a very Happy Diwali🪔'],
+    ['PTI@g.us', 'the copy']], 'greetings to the number, forwards as the copy; dashboard replies wait');
+  assert.deepEqual(env.DB.raw.prepare("SELECT status, via FROM outbox WHERE id IN ('G:diwali-2026:918888800071', 'FX1', 'RX1') ORDER BY id").all()
+    .map(o => [o.status, o.via]), [['sent', 'wasender'], ['sent', 'wasender'], ['pending', null]]);
+  await worker.scheduled({ cron: '*/10 * * * *' }, env, ctx);
+  assert.equal(sent.length, before + 3, 'nothing sent twice');
+  env.DB.raw.prepare("DELETE FROM outbox WHERE id LIKE 'G:%' OR id IN ('FX1', 'RX1')").run();
 }
 
 // Detail panel: the message in full plus the conversation around it.

@@ -922,6 +922,34 @@ async function queueGreetings(env, rows) {
   }
 }
 
+// When the computer is off: automatic messages WhatsApp Web has not taken within a few minutes go
+// through WaSender instead (every 10 minutes, a few at a time) — a greeting reply to the person's
+// number, an automatic forward as its plain copy (WaSender cannot forward). Replies written on the
+// dashboard are left for the user, who can send them with the WaSender button.
+const OUTBOX_FALLBACK_MS = 5 * 60000;
+async function outboxFallback(env) {
+  if (!env.WASENDER_API_KEY) return 0;
+  const now = Date.now();
+  const due = (await env.DB.prepare(
+    "UPDATE outbox SET status = 'sending', claimed_at = ?, via = 'wasender' WHERE id IN (SELECT id FROM outbox " +
+    "WHERE status IN ('pending', 'failed') AND IFNULL(via, '') <> 'wasender' AND created > ? AND created < ? " +
+    "AND (id LIKE 'G:%' OR fwd_msg IS NOT NULL) ORDER BY created LIMIT 5) RETURNING *"
+  ).bind(now, now - DAY, now - OUTBOX_FALLBACK_MS).all()).results || [];
+  let n = 0;
+  for (const o of due) {
+    try {
+      const to = o.id.startsWith('G:') ? '+' + o.id.split(':').pop().replace(/\D/g, '') : o.chat;
+      await wa(env, 'POST', '/send-message', { to, text: o.fwd_msg ? (o.copy || o.text) : o.text });
+      await finishReply(env, o, true, 'wasender', '');
+      n++;
+    } catch (e) {
+      await finishReply(env, o, false, 'wasender', String(e.message || e).slice(0, 300));
+    }
+    await new Promise(r => setTimeout(r, 3000));
+  }
+  return n;
+}
+
 // ===================================================================
 // Deleted on WhatsApp → deleted here
 // ===================================================================
@@ -1721,6 +1749,8 @@ export function makeWorker(inboxHtml, userScript, coreScript) {
         await syncNames(env, true);
       } else if (cron === '0 */6 * * *') {
         await syncNames(env, false);
+      } else if (cron === '*/10 * * * *') {
+        await outboxFallback(env);
       }
     }
   };

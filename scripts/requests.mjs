@@ -10,7 +10,9 @@
 //   ACTION=status                          → WaSender's own view of the WhatsApp session (read only)
 //   ACTION=greet [ID=run]                  → festival wishes already received that GREETINGS would answer;
 //                                            with ID=run, queue those replies in the outbox (WhatsApp Web sends them)
-//   ACTION=send GROUP='["name",…]' | PHONE=… TEXT=… [NAME=image URL] [PAUSE=seconds] → send one message (or image + caption) to each listed group, or to one number
+//   ACTION=send GROUP='["name",…]' | PHONE=… TEXT=… [NAME=image URL] [PAUSE=seconds or seconds/batch/break]
+//                                          → send one message (or image + caption) to each listed group, or to one number;
+//                                            with a batch, up to 300 groups in one run (send runs queue one after another)
 import { execFileSync } from 'node:child_process';
 import { GREETINGS, greetingFor } from '../src/app.js';
 
@@ -124,7 +126,11 @@ if (ACTION === 'list') {
   const names = [...new Set(JSON.parse(process.env.GROUP || '[]').map(n => String(n).trim()).filter(Boolean))];
   const text = (process.env.TEXT || '').trim();
   const phone = (process.env.PHONE || '').replace(/\D/g, '');   // or one person, for a test
-  if (phone ? !/^\d{10,15}$/.test(phone) : (!names.length || names.length > 20)) throw new Error('GROUP must be a JSON list of 1 to 20 group names, or PHONE one number with country code');
+  // PAUSE = seconds between groups, or "seconds/batch/break": a longer break (seconds) after every `batch` groups.
+  const [gap, batch, brk] = String(process.env.PAUSE || '').split('/').map(Number);
+  const wait = Math.min(Math.max(gap || 20, 10), 120) * 1000, every = batch > 0 ? batch : 0, rest = Math.min(Math.max(brk || 0, 60), 900) * 1000;
+  const most = every ? 300 : 20;
+  if (phone ? !/^\d{10,15}$/.test(phone) : (!names.length || names.length > most)) throw new Error('GROUP must be a JSON list of 1 to ' + most + ' group names, or PHONE one number with country code');
   const image = (process.env.NAME || '').trim();   // optional: public https URL of an image; TEXT becomes its caption
   if (image && !/^https:\/\/\S+$/.test(image)) throw new Error('NAME (image URL) must be a public https address');
   if ((!text && !image) || text.length > 4000) throw new Error('TEXT must be 1 to 4000 characters (it may be empty only when an image is sent)');
@@ -138,11 +144,13 @@ if (ACTION === 'list') {
       try {
         await wa('POST', '/send-message', image ? (text ? { to: jid, text, imageUrl: image } : { to: jid, imageUrl: image }) : { to: jid, text });
         results.push({ name, jid, ok: true });
+        console.log('SENT ' + name);
       } catch (e) {
         if (offline(e)) { console.log('SEND_JSON ' + JSON.stringify(results)); throw new Error('Stopped at "' + name + '": ' + e.message); }
         results.push({ name, jid, ok: false, note: e.message.slice(0, 200) });
+        console.log('FAILED ' + name + ': ' + e.message.slice(0, 200));
       }
-      await pause(Math.min(Math.max(Number(process.env.PAUSE) || 20, 10), 120) * 1000);
+      await pause(every && results.length % every === 0 ? rest : wait);
     }
   }
   console.log('SEND_JSON ' + JSON.stringify(results));

@@ -361,6 +361,14 @@ assert.equal(d.outbox.find(o => o.id === q3.id).status, 'failed');
     .map(o => [o.status, o.via]), [['sent', 'wasender'], ['sent', 'wasender'], ['pending', null]]);
   await worker.scheduled({ cron: '*/10 * * * *' }, env, ctx);
   assert.equal(sent.length, before + 3, 'nothing sent twice');
+  // WaSender says "too fast" (429): the item waits for the next round instead of failing.
+  env.DB.raw.prepare("INSERT INTO outbox (id, created, chat, text) VALUES ('G:diwali-2026:918888800099', ?, '918888800099@s.whatsapp.net', 'hi')").run(Date.now() - 6 * 60000);
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => String(url).endsWith('/send-message')
+    ? new Response(JSON.stringify({ success: false, message: 'You can only send 1 message every 5 seconds.' }), { status: 429 }) : realFetch(url, opts);
+  await worker.scheduled({ cron: '*/10 * * * *' }, env, ctx);
+  globalThis.fetch = realFetch;
+  assert.deepEqual({ ...env.DB.raw.prepare("SELECT status, via FROM outbox WHERE id = 'G:diwali-2026:918888800099'").get() }, { status: 'pending', via: null });
   env.DB.raw.prepare("DELETE FROM outbox WHERE id LIKE 'G:%' OR id IN ('FX1', 'RX1')").run();
 }
 

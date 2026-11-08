@@ -943,9 +943,12 @@ async function outboxFallback(env) {
       await finishReply(env, o, true, 'wasender', '');
       n++;
     } catch (e) {
-      await finishReply(env, o, false, 'wasender', String(e.message || e).slice(0, 300));
+      const msg = String(e.message || e).slice(0, 300);
+      // WaSender's account protection allows one message every 5 seconds: try again on the next round.
+      if (/ 429:/.test(msg)) await env.DB.prepare("UPDATE outbox SET status = 'pending', via = NULL, error = ? WHERE id = ?").bind(msg, o.id).run();
+      else await finishReply(env, o, false, 'wasender', msg);
     }
-    await new Promise(r => setTimeout(r, 3000));
+    await new Promise(r => setTimeout(r, 6000));
   }
   return n;
 }

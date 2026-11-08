@@ -142,7 +142,11 @@ if (ACTION === 'list') {
     if (!hits.length) { results.push({ name, ok: false, note: 'no group with this name' }); continue; }
     for (const { jid } of hits) {
       try {
-        await wa('POST', '/send-message', image ? (text ? { to: jid, text, imageUrl: image } : { to: jid, imageUrl: image }) : { to: jid, text });
+        // WaSender's account protection allows one message every 5 seconds; wait and try again when it says so.
+        for (let attempt = 0; ; attempt++) {
+          try { await wa('POST', '/send-message', image ? (text ? { to: jid, text, imageUrl: image } : { to: jid, imageUrl: image }) : { to: jid, text }); break; }
+          catch (e) { if (/ 429:/.test(e.message) && attempt < 4) { await pause(8000); continue; } throw e; }
+        }
         results.push({ name, jid, ok: true });
         console.log('SENT ' + name);
       } catch (e) {
@@ -172,6 +176,8 @@ if (ACTION === 'list') {
   }
   if (ID === 'run') {
     const now = Date.now();
+    // replies WaSender refused for sending too fast get another try
+    d1("UPDATE outbox SET status = 'pending', via = NULL, created = " + now + " WHERE id LIKE 'G:%' AND status = 'failed' AND error LIKE '%429%'");
     for (const o of todo) d1(`INSERT OR IGNORE INTO outbox (id, created, chat, quote, text) VALUES (${sql(o.id)}, ${now}, ${sql(o.chat)}, ${sql(o.quote)}, ${sql(o.reply)})`);
   }
   console.log('GREET_JSON ' + JSON.stringify({ queued: ID === 'run', items: todo }));

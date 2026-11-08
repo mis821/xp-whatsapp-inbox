@@ -122,9 +122,9 @@ if (ACTION === 'list') {
   const text = (process.env.TEXT || '').trim();
   const phone = (process.env.PHONE || '').replace(/\D/g, '');   // or one person, for a test
   if (phone ? !/^\d{10,15}$/.test(phone) : (!names.length || names.length > 20)) throw new Error('GROUP must be a JSON list of 1 to 20 group names, or PHONE one number with country code');
-  if (!text || text.length > 4000) throw new Error('TEXT must be 1 to 4000 characters');
   const image = (process.env.NAME || '').trim();   // optional: public https URL of an image; TEXT becomes its caption
   if (image && !/^https:\/\/\S+$/.test(image)) throw new Error('NAME (image URL) must be a public https address');
+  if ((!text && !image) || text.length > 4000) throw new Error('TEXT must be 1 to 4000 characters (it may be empty only when an image is sent)');
   const pause = ms => new Promise(r => setTimeout(r, ms));
   const results = [];
   const targets = phone ? [{ name: '+' + phone, hits: [{ jid: '+' + phone }] }]
@@ -133,7 +133,7 @@ if (ACTION === 'list') {
     if (!hits.length) { results.push({ name, ok: false, note: 'no group with this name' }); continue; }
     for (const { jid } of hits) {
       try {
-        await wa('POST', '/send-message', image ? { to: jid, text, imageUrl: image } : { to: jid, text });
+        await wa('POST', '/send-message', image ? (text ? { to: jid, text, imageUrl: image } : { to: jid, imageUrl: image }) : { to: jid, text });
         results.push({ name, jid, ok: true });
       } catch (e) {
         if (offline(e)) { console.log('SEND_JSON ' + JSON.stringify(results)); throw new Error('Stopped at "' + name + '": ' + e.message); }

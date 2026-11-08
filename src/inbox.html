@@ -853,7 +853,7 @@
           D.outbox = [{ id: res.id, created: Date.now(), chat: f.jid, quote: f.id, text: text, status: 'pending', via: '', sentAt: 0, error: '' }]
             .concat(D.outbox || []);
           closeModal();
-          toast(res.webLive ? '↩ Queued — WhatsApp Web will send it in about 10 seconds' : '↩ Queued — it will be sent when WhatsApp Web opens');
+          toast(res.sent ? '↩ Sent through WaSender (WhatsApp Web is closed)' : res.webLive ? '↩ Queued — WhatsApp Web will send it in about 10 seconds' : '↩ Queued — it will be sent when WhatsApp Web opens');
           renderZaroori(); renderOwners();
           // Check back once the WhatsApp Web tab has had time to send it.
           setTimeout(function () { load(true); }, 20000);

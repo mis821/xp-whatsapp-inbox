@@ -273,7 +273,16 @@ d = await rpc('getWaInbox', 2);
 assert.equal(d.webLive, false, 'no WhatsApp Web yet');
 await assert.rejects(rpc('queueWaReply', { chat: 'G1@g.us', quote: 'M1', text: '  ' }), /empty|describe/);
 await assert.rejects(rpc('queueWaReply', { chat: 'nope@g.us', text: 'x' }), /not in the list/);
+// WhatsApp Web closed (computer off, replying from the phone): straight through WaSender.
+{
+  const before = sent.length;
+  const q0 = await rpc('queueWaReply', { chat: '917777700000@s.whatsapp.net', quote: 'M4', text: 'Ji, abhi bhejta hoon' });
+  assert.equal(q0.sent, true);
+  assert.deepEqual(sent.slice(before), [{ to: '+917777700000', text: 'Ji, abhi bhejta hoon' }]);
+  assert.equal((await (await req(obUrl)).json()).items.length, 0, 'nothing left for WhatsApp Web');
+}
 const q1 = await rpc('queueWaReply', { chat: 'G1@g.us', quote: 'M1', text: 'Ji sir, kal tak', flagId: 'M1', markDone: true });
+assert.equal(q1.sent, false, 'WhatsApp Web is open now: it sends, with the quote');
 let claim = await (await req(obUrl)).json();
 assert.deepEqual(claim.items.map(i => [i.id, i.chat, i.quote, i.text]), [[q1.id, 'G1@g.us', 'M1', 'Ji sir, kal tak']]);
 assert.equal((await (await req(obUrl)).json()).items.length, 0, 'claimed once only');

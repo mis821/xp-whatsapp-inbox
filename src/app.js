@@ -819,7 +819,14 @@ async function queueReply(env, o) {
   const id = 'R' + Date.now().toString(36) + randomHex(3);
   await env.DB.prepare('INSERT INTO outbox (id, created, chat, quote, text, flag_id, mark_done) VALUES (?, ?, ?, ?, ?, ?, ?)')
     .bind(id, Date.now(), chat, o.quote ? String(o.quote) : null, text, o.flagId ? String(o.flagId) : null, o.markDone ? 1 : 0).run();
-  return { id, webLive: await webLive(env) };
+  const live = await webLive(env);
+  // WhatsApp Web closed (computer off, or replying from the phone): send it straight through WaSender.
+  // It cannot quote; a chat known only by its LID stays queued for WhatsApp Web.
+  let sent = false;
+  if (!live && env.WASENDER_API_KEY && !/@lid$/.test(chat)) {
+    try { sent = await sendReplyNow(env, id); } catch (e) { sent = false; }
+  }
+  return { id, webLive: live, sent };
 }
 
 // The fallback: straight through WaSender, no quote (WaSender can only quote what it sent itself).

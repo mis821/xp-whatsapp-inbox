@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: list, update, sessions, groups, rename, addmember, checkmember, admins, status, send or greet
+        description: list, update, sessions, groups, rename, addmember, removemember, checkmember, admins, status, send or greet
         required: true
         default: list
       id:
@@ -21,13 +21,13 @@ on:
         description: JSON list of conversations [{"id","title"}] (sessions only)
         required: false
       group:
-        description: Current group name, exactly (rename); JSON list of names (addmember, checkmember, admins, send)
+        description: Current group name, exactly (rename); JSON list of names (addmember, removemember, checkmember, admins, send)
         required: false
       name:
         description: New group name (rename); public image URL (send, optional)
         required: false
       phone:
-        description: Number with country code (addmember, checkmember)
+        description: Number with country code (addmember, removemember, checkmember, send)
         required: false
       pause:
         description: Seconds between groups (addmember 8-120, default 8; send 10-120, default 20, or seconds/batch/break)

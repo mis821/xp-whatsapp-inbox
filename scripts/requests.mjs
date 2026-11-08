@@ -6,6 +6,7 @@
 //   ACTION=rename GROUP=… NAME=…           → rename one WhatsApp group (exact current name) through WaSender
 //   ACTION=addmember GROUP='["name",…]' PHONE=… [PAUSE=seconds] → add one number to each listed group (exact names) through WaSender
 //   ACTION=checkmember GROUP='["name",…]' PHONE=… → whether that number is in each listed group now (read only)
+//   ACTION=removemember GROUP='["name",…]' PHONE=… [PAUSE=seconds or seconds/batch/break] → remove one number from each listed group
 //   ACTION=admins GROUP='["name",…]'      → whether the office number is an admin of each listed group (read only)
 //   ACTION=status                          → WaSender's own view of the WhatsApp session (read only)
 //   ACTION=greet [ID=run]                  → festival wishes already received that GREETINGS would answer;
@@ -103,6 +104,37 @@ if (ACTION === 'list') {
     }
   }
   console.log('ADDMEMBER_JSON ' + JSON.stringify(results));
+} else if (ACTION === 'removemember') {
+  const names = [...new Set(JSON.parse(process.env.GROUP || '[]').map(n => String(n).trim()).filter(Boolean))];
+  const phone = (process.env.PHONE || '').replace(/\D/g, '');
+  const [gap, batch, brk] = String(process.env.PAUSE || '').split('/').map(Number);
+  const wait = Math.min(Math.max(gap || 20, 10), 120) * 1000, every = batch > 0 ? batch : 0, rest = Math.min(Math.max(brk || 0, 60), 900) * 1000;
+  if (!names.length || names.length > (every ? 300 : 20)) throw new Error('GROUP must be a JSON list of group names (up to 20, or 300 with a batch in PAUSE)');
+  if (!/^\d{10,15}$/.test(phone)) throw new Error('PHONE must be a number with country code, e.g. 919876543210');
+  const pause = ms => new Promise(r => setTimeout(r, ms));
+  const results = [];
+  for (const name of names) {
+    const hits = d1(`SELECT jid FROM chats WHERE kind = 'group' AND TRIM(name) = ${sql(name)}`);
+    if (!hits.length) { results.push({ name, ok: false, note: 'no group with this name' }); continue; }
+    for (const { jid } of hits) {
+      let r;
+      for (let attempt = 0; attempt < 4 && !r; attempt++) {
+        try {
+          const data = await wa('POST', '/groups/' + encodeURIComponent(jid) + '/participants/remove', { participants: [phone] });
+          const status = String((Array.isArray(data) && data[0] && data[0].status) || '');
+          r = { name, jid, ok: status === '200' || status === '', note: status };
+        } catch (e) {
+          if (/ 429:/.test(e.message) && attempt < 3) { await pause(15000); continue; }
+          if (offline(e)) { console.log('REMOVE_JSON ' + JSON.stringify(results)); throw new Error('Stopped at "' + name + '": ' + e.message); }
+          r = { name, jid, ok: false, note: e.message.slice(0, 200) };
+        }
+      }
+      results.push(r);
+      console.log((r.ok ? 'REMOVED ' : 'NOT REMOVED ') + name + (r.ok ? '' : ': ' + r.note));
+      await pause(every && results.length % every === 0 ? rest : wait);
+    }
+  }
+  console.log('REMOVE_JSON ' + JSON.stringify(results));
 } else if (ACTION === 'checkmember') {
   const names = JSON.parse(process.env.GROUP || '[]').map(n => String(n).trim()).filter(Boolean);
   const phone = (process.env.PHONE || '').replace(/\D/g, '');
@@ -214,5 +246,5 @@ if (ACTION === 'list') {
   }
   console.log('ADMINS_JSON ' + JSON.stringify(results));
 } else {
-  throw new Error('ACTION must be list, update, sessions, groups, rename, addmember, checkmember, admins, status, send or greet');
+  throw new Error('ACTION must be list, update, sessions, groups, rename, addmember, removemember, checkmember, admins, status, send or greet');
 }

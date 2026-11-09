@@ -863,7 +863,8 @@ async function outboxClaim(env, adds) {
   // Adding a member to a group ("A:" items): one at a time, at most one every ADD_GAP_MS, because many
   // adds in a row get the number flagged by WhatsApp. WhatsApp Web does it as if a person clicked.
   // Only a WhatsApp Web script that knows how to add members asks for them (older ones would send the note as text).
-  if (adds && now - (Number(await getSetting(env, 'add_last')) || 0) >= ADD_GAP_MS) {
+  const gap = Math.min(Math.max(Number(await getSetting(env, 'add_gap_ms')) || ADD_GAP_MS, 15000), 600000);
+  if (adds && now - (Number(await getSetting(env, 'add_last')) || 0) >= gap) {
     const a = await env.DB.prepare(
       "UPDATE outbox SET status = 'sending', claimed_at = ? WHERE id IN (SELECT id FROM outbox WHERE status = 'pending' AND created > ? " +
       "AND id LIKE 'A:%' ORDER BY created LIMIT 1) RETURNING id, chat, quote, text, fwd_chat, fwd_msg, mentions, copy").bind(now, now - DAY).all();
@@ -871,7 +872,7 @@ async function outboxClaim(env, adds) {
   }
   return items;
 }
-const ADD_GAP_MS = 2 * 60000;
+const ADD_GAP_MS = 2 * 60000;   // default; settings.add_gap_ms overrides it (15 s to 10 min)
 async function outboxAck(env, body) {
   const o = await env.DB.prepare('SELECT * FROM outbox WHERE id = ?').bind(String((body && body.id) || '')).first();
   if (!o) return false;

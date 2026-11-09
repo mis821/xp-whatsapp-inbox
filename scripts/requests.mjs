@@ -6,8 +6,8 @@
 //   ACTION=rename GROUP=… NAME=…           → rename one WhatsApp group (exact current name) through WaSender
 //   ACTION=addmember GROUP='["name",…]' PHONE=… [PAUSE=seconds or seconds/batch/break] → add one number to each listed group (exact names) through WaSender
 //   ACTION=checkmember GROUP='["name",…]' PHONE=… → whether that number is in each listed group now (read only)
-//   ACTION=queueadd GROUP='["name",…]' PHONE=… → queue adding one number to each listed group; WhatsApp Web on the
-//                                            computer does them one at a time, one every 2 minutes (failed ones are queued again)
+//   ACTION=queueadd GROUP='["name",…]' PHONE=… [PAUSE=seconds] → queue adding one number to each listed group; WhatsApp Web
+//                                            on the computer does them one at a time, one every PAUSE seconds (default 120; failed ones are queued again)
 //   ACTION=removemember GROUP='["name",…]' PHONE=… [PAUSE=seconds or seconds/batch/break] → remove one number from each listed group
 //   ACTION=admins GROUP='["name",…]'      → whether the office number is an admin of each listed group (read only)
 //   ACTION=status                          → WaSender's own view of the WhatsApp session (read only)
@@ -118,6 +118,11 @@ if (ACTION === 'list') {
   if (!names.length || names.length > 300) throw new Error('GROUP must be a JSON list of 1 to 300 group names');
   if (!/^\d{10,15}$/.test(phone)) throw new Error('PHONE must be a number with country code, e.g. 919876543210');
   const now = Date.now(), out = { queued: 0, missing: [] };
+  // PAUSE = seconds between adds (15 to 600); kept for later adds too.
+  if (Number(process.env.PAUSE) > 0) {
+    out.gapSeconds = Math.min(Math.max(Number(process.env.PAUSE), 15), 600);
+    d1(`INSERT INTO settings (k, v) VALUES ('add_gap_ms', '${out.gapSeconds * 1000}') ON CONFLICT(k) DO UPDATE SET v = excluded.v`);
+  }
   names.forEach((name, i) => {
     const hits = d1(`SELECT jid FROM chats WHERE kind = 'group' AND TRIM(name) = ${sql(name)}`);
     if (!hits.length) { out.missing.push(name); return; }

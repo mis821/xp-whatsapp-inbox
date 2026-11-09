@@ -4,7 +4,7 @@
 //   ACTION=sessions SESSIONS='[{"id","title","updated"}]' → the conversations offered on the dashboard
 //   ACTION=groups                          → every WhatsApp group name, as JSON (read only)
 //   ACTION=rename GROUP=… NAME=…           → rename one WhatsApp group (exact current name) through WaSender
-//   ACTION=addmember GROUP='["name",…]' PHONE=… [PAUSE=seconds] → add one number to each listed group (exact names) through WaSender
+//   ACTION=addmember GROUP='["name",…]' PHONE=… [PAUSE=seconds or seconds/batch/break] → add one number to each listed group (exact names) through WaSender
 //   ACTION=checkmember GROUP='["name",…]' PHONE=… → whether that number is in each listed group now (read only)
 //   ACTION=removemember GROUP='["name",…]' PHONE=… [PAUSE=seconds or seconds/batch/break] → remove one number from each listed group
 //   ACTION=admins GROUP='["name",…]'      → whether the office number is an admin of each listed group (read only)
@@ -77,7 +77,10 @@ if (ACTION === 'list') {
 } else if (ACTION === 'addmember') {
   const names = [...new Set(JSON.parse(process.env.GROUP || '[]').map(n => String(n).trim()).filter(Boolean))];
   const phone = (process.env.PHONE || '').replace(/\D/g, '');
-  if (!names.length || names.length > 60) throw new Error('GROUP must be a JSON list of 1 to 60 group names');
+  // PAUSE = seconds between groups (8-120), or "seconds/batch/break": a longer break (seconds) after every `batch` groups.
+  const [gap, batch, brk] = String(process.env.PAUSE || '').split('/').map(Number);
+  const every = batch > 0 ? batch : 0, rest = Math.min(Math.max(brk || 0, 60), 3600) * 1000;
+  if (!names.length || names.length > (every ? 300 : 60)) throw new Error('GROUP must be a JSON list of group names (up to 60, or 300 with a batch in PAUSE)');
   if (!/^\d{10,15}$/.test(phone)) throw new Error('PHONE must be a number with country code, e.g. 919876543210');
   const pause = ms => new Promise(r => setTimeout(r, ms));
   const results = [];
@@ -100,8 +103,9 @@ if (ACTION === 'list') {
         }
       }
       results.push(r);
-      // Go slowly: many adds in a row can get the number flagged by WhatsApp. PAUSE (seconds) can slow it further.
-      await pause(Math.min(Math.max(Number(process.env.PAUSE) || 8, 8), 120) * 1000);
+      console.log((r.ok ? 'ADDED ' : 'NOT ADDED ') + name + (r.ok ? '' : ': ' + r.note));
+      // Go slowly: many adds in a row can get the number flagged by WhatsApp. PAUSE can slow it further.
+      await pause(every && results.length % every === 0 ? rest : Math.min(Math.max(gap || 8, 8), 120) * 1000);
     }
   }
   console.log('ADDMEMBER_JSON ' + JSON.stringify(results));

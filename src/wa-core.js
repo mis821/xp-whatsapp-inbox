@@ -205,6 +205,8 @@
       // Adding a member to a group: handed out one at a time, slowly, by the dashboard.
       if (String(item.id).indexOf('A:') === 0) {
         var who = String(item.mentions || '').split(',')[0] + '@c.us';
+        // A group not opened lately may not be loaded in WhatsApp Web yet: load it first.
+        try { if (WPP.chat.find) await WPP.chat.find(chatId); } catch (e) { /* try the add anyway */ }
         var res = await WPP.group.addParticipants(chatId, [who]);
         var one = res && (res[who] || res[Object.keys(res)[0]]);
         var code = one && (one.code || one.status);

@@ -299,6 +299,8 @@ if (ACTION === 'list') {
   out.outbox = d1(`SELECT status, IFNULL(via, '') AS via, COUNT(*) AS n, MAX(IFNULL(error, '')) AS error FROM outbox WHERE created > ${Date.now() - 86400000} AND id NOT LIKE 'A:%' GROUP BY status, via`);
   out.adds = d1(`SELECT status, COUNT(*) AS n, MAX(IFNULL(error, '')) AS error, MAX(IFNULL(sent_at, 0)) AS last FROM outbox WHERE id LIKE 'A:%' GROUP BY status`);
   out.addFailed = d1(`SELECT text, error FROM outbox WHERE id LIKE 'A:%' AND status = 'failed' ORDER BY created LIMIT 30`);
+  out.addRecent = d1(`SELECT text, status, claimed_at, sent_at, IFNULL(error, '') AS error FROM outbox WHERE id LIKE 'A:%' AND claimed_at IS NOT NULL ORDER BY claimed_at DESC LIMIT 12`)
+    .map(r => ({ group: String(r.text).replace(/^Add \+\d+ to /, ''), status: r.status, claimed: r.claimed_at ? new Date(r.claimed_at).toISOString().slice(11, 19) : '', sent: r.sent_at ? new Date(r.sent_at).toISOString().slice(11, 19) : '', error: r.error }));
   out.webSeen = new Date(Number((d1("SELECT v FROM settings WHERE k = 'web_seen'")[0] || {}).v) || 0).toISOString();
   console.log('STATUS_JSON ' + JSON.stringify(out));
 } else if (ACTION === 'admins') {

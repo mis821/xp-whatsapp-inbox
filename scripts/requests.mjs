@@ -10,6 +10,7 @@
 //   ACTION=admins GROUP='["name",…]'      → whether the office number is an admin of each listed group (read only)
 //   ACTION=status                          → WaSender's own view of the WhatsApp session (read only)
 //   ACTION=groupadmins GROUP='["name",…]' [PAUSE=seconds] → the admins of each listed group, with number and saved name (read only)
+//   ACTION=invitelinks GROUP='["name",…]' [PAUSE=seconds] → each listed group's invite link (read only; needs the office number to be admin)
 //   ACTION=greet [ID=run]                  → festival wishes already received that GREETINGS would answer;
 //                                            with ID=run, queue those replies in the outbox (WhatsApp Web sends them)
 //   ACTION=send GROUP='["name",…]' | PHONE=… TEXT=… [NAME=image URL] [PAUSE=seconds or seconds/batch/break]
@@ -245,6 +246,27 @@ if (ACTION === 'list') {
     }
   }
   console.log('ADMINLIST_JSON ' + JSON.stringify(results));
+} else if (ACTION === 'invitelinks') {
+  const names = [...new Set(JSON.parse(process.env.GROUP || '[]').map(n => String(n).trim()).filter(Boolean))];
+  if (!names.length || names.length > 150) throw new Error('GROUP must be a JSON list of 1 to 150 group names');
+  const wait = Math.min(Math.max(Number(process.env.PAUSE) || 15, 8), 120) * 1000;
+  const results = [];
+  for (const name of names) {
+    const hits = d1(`SELECT jid FROM chats WHERE kind = 'group' AND TRIM(name) = ${sql(name)}`);
+    if (!hits.length) { results.push({ name, error: 'no group with this name' }); continue; }
+    for (const { jid } of hits) {
+      try {
+        const d = await wa('GET', '/groups/' + encodeURIComponent(jid) + '/invite-link');
+        const link = (d && (d.inviteUrl || d.inviteLink || d.link || d.url)) || (d && d.code ? 'https://chat.whatsapp.com/' + d.code : '') || (typeof d === 'string' ? d : '');
+        results.push(link ? { name, link } : { name, raw: JSON.stringify(d).slice(0, 300) });
+      } catch (e) {
+        if (offline(e)) { console.log('INVITES_JSON ' + JSON.stringify(results)); throw new Error('Stopped at "' + name + '": ' + e.message); }
+        results.push({ name, error: e.message.slice(0, 200) });
+      }
+      await new Promise(r => setTimeout(r, wait));
+    }
+  }
+  console.log('INVITES_JSON ' + JSON.stringify(results));
 } else if (ACTION === 'status') {
   let out;
   try { out = await wa('GET', '/status'); } catch (e) { out = { error: e.message }; }
@@ -278,5 +300,5 @@ if (ACTION === 'list') {
   }
   console.log('ADMINS_JSON ' + JSON.stringify(results));
 } else {
-  throw new Error('ACTION must be list, update, sessions, groups, rename, addmember, removemember, checkmember, admins, groupadmins, status, send or greet');
+  throw new Error('ACTION must be list, update, sessions, groups, rename, addmember, removemember, checkmember, admins, groupadmins, invitelinks, status, send or greet');
 }

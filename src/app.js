@@ -851,16 +851,27 @@ async function finishReply(env, o, ok, via, error) {
 
 // WhatsApp Web's side: hand out what is waiting (claimed so two tabs cannot both send it), and
 // take back the result. Also its heartbeat, so the dashboard can say whether the tab is open.
-async function outboxClaim(env) {
+async function outboxClaim(env, adds) {
   const now = Date.now();
   if (now - (Number(await getSetting(env, 'web_seen')) || 0) > 60000) await setSetting(env, 'web_seen', now);
   await env.DB.prepare("UPDATE outbox SET status = 'failed', error = 'WhatsApp Web did not respond' WHERE status = 'sending' AND claimed_at < ?")
     .bind(now - 120000).run();
   const r = await env.DB.prepare(
     "UPDATE outbox SET status = 'sending', claimed_at = ? WHERE id IN (SELECT id FROM outbox WHERE status = 'pending' AND created > ? " +
-    'ORDER BY created LIMIT 5) RETURNING id, chat, quote, text, fwd_chat, fwd_msg, mentions, copy').bind(now, now - DAY).all();
-  return r.results || [];
+    "AND id NOT LIKE 'A:%' ORDER BY created LIMIT 5) RETURNING id, chat, quote, text, fwd_chat, fwd_msg, mentions, copy").bind(now, now - DAY).all();
+  const items = r.results || [];
+  // Adding a member to a group ("A:" items): one at a time, at most one every ADD_GAP_MS, because many
+  // adds in a row get the number flagged by WhatsApp. WhatsApp Web does it as if a person clicked.
+  // Only a WhatsApp Web script that knows how to add members asks for them (older ones would send the note as text).
+  if (adds && now - (Number(await getSetting(env, 'add_last')) || 0) >= ADD_GAP_MS) {
+    const a = await env.DB.prepare(
+      "UPDATE outbox SET status = 'sending', claimed_at = ? WHERE id IN (SELECT id FROM outbox WHERE status = 'pending' AND created > ? " +
+      "AND id LIKE 'A:%' ORDER BY created LIMIT 1) RETURNING id, chat, quote, text, fwd_chat, fwd_msg, mentions, copy").bind(now, now - DAY).all();
+    if ((a.results || []).length) { await setSetting(env, 'add_last', now); items.push(a.results[0]); }
+  }
+  return items;
 }
+const ADD_GAP_MS = 2 * 60000;
 async function outboxAck(env, body) {
   const o = await env.DB.prepare('SELECT * FROM outbox WHERE id = ?').bind(String((body && body.id) || '')).first();
   if (!o) return false;
@@ -870,7 +881,7 @@ async function outboxAck(env, body) {
 
 async function outboxOut(env) {
   const r = await env.DB.prepare(
-    'SELECT id, created, chat, quote, text, status, via, sent_at, error FROM outbox WHERE created > ? ORDER BY created DESC LIMIT 300'
+    "SELECT id, created, chat, quote, text, status, via, sent_at, error FROM outbox WHERE created > ? AND id NOT LIKE 'A:%' ORDER BY created DESC LIMIT 300"
   ).bind(Date.now() - 2 * DAY).all();
   return r.results.map(o => ({ id: o.id, created: o.created, chat: o.chat, quote: o.quote || '', text: o.text,
     status: o.status, via: o.via || '', sentAt: o.sent_at || 0, error: o.error || '' }));
@@ -1655,10 +1666,10 @@ export function makeWorker(inboxHtml, userScript, coreScript) {
         }
         if (p === '/health') return new Response('ok');
         // WhatsApp Web collects replies to send, and reports back. Same token as the webhook.
-        if (p === '/wa-outbox') {
+        if (p === '/wa-outbox' || p === '/wa-outbox-adds') {
           const token = await secretSetting(env, 'webhook_token');
           if (!safeEq(url.searchParams.get('token') || '', token)) return new Response('forbidden', { status: 401 });
-          if (req.method === 'GET') return json({ items: await outboxClaim(env) });
+          if (req.method === 'GET') return json({ items: await outboxClaim(env, p === '/wa-outbox-adds') });
           if (req.method === 'POST') return json({ ok: await outboxAck(env, await req.json()) });
         }
         // WhatsApp Web reports what was deleted there, and asks which chats to compare. Same token.

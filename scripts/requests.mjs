@@ -6,6 +6,8 @@
 //   ACTION=rename GROUP=… NAME=…           → rename one WhatsApp group (exact current name) through WaSender
 //   ACTION=addmember GROUP='["name",…]' PHONE=… [PAUSE=seconds or seconds/batch/break] → add one number to each listed group (exact names) through WaSender
 //   ACTION=checkmember GROUP='["name",…]' PHONE=… → whether that number is in each listed group now (read only)
+//   ACTION=queueadd GROUP='["name",…]' PHONE=… → queue adding one number to each listed group; WhatsApp Web on the
+//                                            computer does them one at a time, one every 2 minutes (failed ones are queued again)
 //   ACTION=removemember GROUP='["name",…]' PHONE=… [PAUSE=seconds or seconds/batch/break] → remove one number from each listed group
 //   ACTION=admins GROUP='["name",…]'      → whether the office number is an admin of each listed group (read only)
 //   ACTION=status                          → WaSender's own view of the WhatsApp session (read only)
@@ -110,6 +112,22 @@ if (ACTION === 'list') {
     }
   }
   console.log('ADDMEMBER_JSON ' + JSON.stringify(results));
+} else if (ACTION === 'queueadd') {
+  const names = [...new Set(JSON.parse(process.env.GROUP || '[]').map(n => String(n).trim()).filter(Boolean))];
+  const phone = (process.env.PHONE || '').replace(/\D/g, '');
+  if (!names.length || names.length > 300) throw new Error('GROUP must be a JSON list of 1 to 300 group names');
+  if (!/^\d{10,15}$/.test(phone)) throw new Error('PHONE must be a number with country code, e.g. 919876543210');
+  const now = Date.now(), out = { queued: 0, missing: [] };
+  names.forEach((name, i) => {
+    const hits = d1(`SELECT jid FROM chats WHERE kind = 'group' AND TRIM(name) = ${sql(name)}`);
+    if (!hits.length) { out.missing.push(name); return; }
+    for (const { jid } of hits) {
+      d1(`INSERT INTO outbox (id, created, chat, text, mentions) VALUES (${sql('A:' + phone + ':' + jid)}, ${now + i}, ${sql(jid)}, ${sql('Add +' + phone + ' to ' + name)}, ${sql(phone)}) ` +
+        `ON CONFLICT(id) DO UPDATE SET status = 'pending', created = excluded.created, error = NULL WHERE outbox.status = 'failed'`);
+      out.queued++;
+    }
+  });
+  console.log('QUEUEADD_JSON ' + JSON.stringify(out));
 } else if (ACTION === 'removemember') {
   const names = [...new Set(JSON.parse(process.env.GROUP || '[]').map(n => String(n).trim()).filter(Boolean))];
   const phone = (process.env.PHONE || '').replace(/\D/g, '');
@@ -273,7 +291,10 @@ if (ACTION === 'list') {
   // Where messages are arriving from (WhatsApp Web = the computer; anything else = the WaSender webhook).
   out.sources = d1(`SELECT IFNULL(event, '') AS event, COUNT(*) AS n, MAX(received_at) AS last FROM messages WHERE received_at > ${Date.now() - 86400000} GROUP BY event`)
     .map(r => ({ event: r.event, n: r.n, last: new Date(r.last).toISOString() }));
-  out.outbox = d1(`SELECT status, IFNULL(via, '') AS via, COUNT(*) AS n, MAX(IFNULL(error, '')) AS error FROM outbox WHERE created > ${Date.now() - 86400000} GROUP BY status, via`);
+  out.outbox = d1(`SELECT status, IFNULL(via, '') AS via, COUNT(*) AS n, MAX(IFNULL(error, '')) AS error FROM outbox WHERE created > ${Date.now() - 86400000} AND id NOT LIKE 'A:%' GROUP BY status, via`);
+  out.adds = d1(`SELECT status, COUNT(*) AS n, MAX(IFNULL(error, '')) AS error, MAX(IFNULL(sent_at, 0)) AS last FROM outbox WHERE id LIKE 'A:%' GROUP BY status`);
+  out.addFailed = d1(`SELECT text, error FROM outbox WHERE id LIKE 'A:%' AND status = 'failed' ORDER BY created LIMIT 30`);
+  out.webSeen = new Date(Number((d1("SELECT v FROM settings WHERE k = 'web_seen'")[0] || {}).v) || 0).toISOString();
   console.log('STATUS_JSON ' + JSON.stringify(out));
 } else if (ACTION === 'admins') {
   const names = [...new Set(JSON.parse(process.env.GROUP || '[]').map(n => String(n).trim()).filter(Boolean))];
@@ -300,5 +321,5 @@ if (ACTION === 'list') {
   }
   console.log('ADMINS_JSON ' + JSON.stringify(results));
 } else {
-  throw new Error('ACTION must be list, update, sessions, groups, rename, addmember, removemember, checkmember, admins, groupadmins, invitelinks, status, send or greet');
+  throw new Error('ACTION must be list, update, sessions, groups, rename, addmember, queueadd, removemember, checkmember, admins, groupadmins, invitelinks, status, send or greet');
 }

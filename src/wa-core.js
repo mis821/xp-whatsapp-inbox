@@ -202,6 +202,15 @@
     function waChatId(jid) { return String(jid).replace(/@s\.whatsapp\.net$/, '@c.us'); }
     async function sendOne(item) {
       var chatId = waChatId(item.chat);
+      // Adding a member to a group: handed out one at a time, slowly, by the dashboard.
+      if (String(item.id).indexOf('A:') === 0) {
+        var who = String(item.mentions || '').split(',')[0] + '@c.us';
+        var res = await WPP.group.addParticipants(chatId, [who]);
+        var one = res && (res[who] || res[Object.keys(res)[0]]);
+        var code = one && (one.code || one.status);
+        if (code && String(code) !== '200' && String(code) !== '409') throw new Error('WhatsApp refused (' + code + ')' + (one.message ? ': ' + one.message : ''));
+        return;
+      }
       var opts = {};
       if (item.mentions) opts.mentionedList = String(item.mentions).split(',').filter(Boolean).map(function (n) { return n + '@c.us'; });
       // An automatic forward: the original message, then the note under it. If the original cannot
@@ -230,13 +239,13 @@
       if (polling) return;
       polling = true;
       try {
-        var r = await bridge('/wa-outbox', 'GET');
+        var r = await bridge('/wa-outbox-adds', 'GET');
         if (r.status === 200) {
           var items = (JSON.parse(r.body || '{}').items) || [];
           for (var i = 0; i < items.length; i++) {
             var ok = true, err = '';
             try { await sendOne(items[i]); } catch (e) { ok = false; err = (e && e.message) || String(e); }
-            await bridge('/wa-outbox', 'POST', { id: items[i].id, ok: ok, error: err });
+            await bridge('/wa-outbox-adds', 'POST', { id: items[i].id, ok: ok, error: err });
             status(ok ? 'live ✓ · reply sent' : '⚠ reply not sent: ' + err.slice(0, 60));
           }
         }

@@ -381,6 +381,25 @@ assert.equal(d.outbox.find(o => o.id === q3.id).status, 'failed');
   env.DB.raw.prepare("DELETE FROM outbox WHERE id LIKE 'G:%' OR id IN ('FX1', 'RX1')").run();
 }
 
+// Adding a member through WhatsApp Web: one at a time, at most one every 2 minutes; not shown as replies.
+{
+  const t0 = Date.now();
+  env.DB.raw.prepare("INSERT INTO outbox (id, created, chat, text, mentions) VALUES ('A:918383076593:G1@g.us', ?, 'G1@g.us', 'Add', '918383076593'), ('A:918383076593:G2@g.us', ?, 'G2@g.us', 'Add', '918383076593')").run(t0, t0 + 1);
+  env.DB.raw.prepare("DELETE FROM settings WHERE k = 'add_last'").run();
+  assert.equal((await (await req(obUrl)).json()).items.filter(i => i.id.startsWith('A:')).length, 0, 'an older WhatsApp Web script is never given adds');
+  const addUrl = obUrl.replace('/wa-outbox?', '/wa-outbox-adds?');
+  let c = (await (await req(addUrl)).json()).items.filter(i => i.id.startsWith('A:'));
+  assert.deepEqual(c.map(i => [i.id, i.chat, i.mentions]), [['A:918383076593:G1@g.us', 'G1@g.us', '918383076593']], 'one add at a time');
+  c = (await (await req(addUrl)).json()).items.filter(i => i.id.startsWith('A:'));
+  assert.equal(c.length, 0, 'the next add waits 2 minutes');
+  env.DB.raw.prepare("UPDATE settings SET v = ? WHERE k = 'add_last'").run(String(t0 - 3 * 60000));
+  c = (await (await req(addUrl)).json()).items.filter(i => i.id.startsWith('A:'));
+  assert.deepEqual(c.map(i => i.id), ['A:918383076593:G2@g.us']);
+  d = await rpc('getWaInbox', 2);
+  assert.ok(!d.outbox.some(o => o.id.startsWith('A:')), 'adds are not listed as replies');
+  env.DB.raw.prepare("DELETE FROM outbox WHERE id LIKE 'A:%'").run();
+}
+
 // Detail panel: the message in full plus the conversation around it.
 const cx = await rpc('getWaContext', 'Z2');
 assert.equal(cx.msg.text, 'Neeraj sir se baat ho gayi');

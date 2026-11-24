@@ -1179,15 +1179,18 @@ async function getReco(env) {
     key: g.key, open: g.open.length > 0, doneAt: g.open.length ? 0 : g.doneAt,
     openIds: g.open, doneIds: g.ids.filter(id => g.open.indexOf(id) === -1)
   }, g.detail));
-  return { tasks, erp: { connected: !!erpToken(env), base: ERP_BASE } };
+  const sends = {};
+  (await env.DB.prepare('SELECT doc, t, chat_name FROM doc_sends WHERE t > ? ORDER BY t').bind(Date.now() - 365 * DAY).all()).results
+    .forEach(x => { sends[x.doc] = { t: x.t, chatName: x.chat_name }; });
+  return { tasks, sends, erp: { connected: !!erpToken(env), base: ERP_BASE } };
 }
 
 // ERPNext, read with an API key (the PO Tracker uses the same instance and the same kind of key).
 // Debit notes and other documents are looked up by the number written in the task message.
 const ERP_BASE = 'https://xpertpack.frappe.cloud';
 const ERP_TYPES = [
-  { dt: 'Purchase Invoice', fields: ['name', 'supplier', 'posting_date', 'grand_total', 'docstatus', 'is_return', 'bill_no'] },
-  { dt: 'Purchase Receipt', fields: ['name', 'supplier', 'posting_date', 'grand_total', 'docstatus', 'is_return'] },
+  { dt: 'Purchase Invoice', fields: ['name', 'supplier', 'supplier_name', 'posting_date', 'grand_total', 'docstatus', 'is_return', 'bill_no'] },
+  { dt: 'Purchase Receipt', fields: ['name', 'supplier', 'supplier_name', 'posting_date', 'grand_total', 'docstatus', 'is_return'] },
   { dt: 'Journal Entry', fields: ['name', 'posting_date', 'docstatus', 'total_debit', 'voucher_type', 'title'] }
 ];
 const ERP_BATCH = 8;                                  // numbers per lookup — keeps each call well under the Worker's 50 sub-requests
@@ -1208,7 +1211,7 @@ async function erpList(env, t, filters, limit) {
   return Array.isArray(j.data) ? j.data : [];
 }
 function erpInfo(t, d) {
-  return { doctype: t.dt, name: String(d.name), supplier: d.supplier || d.title || '', date: d.posting_date || '',
+  return { doctype: t.dt, name: String(d.name), supplier: d.supplier || d.title || '', supplierName: d.supplier_name || '', date: d.posting_date || '',
            amount: Number(d.grand_total != null ? d.grand_total : d.total_debit) || 0,
            status: ['Draft', 'Submitted', 'Cancelled'][d.docstatus] || '', isReturn: !!d.is_return, bill: d.bill_no || '' };
 }
@@ -1259,8 +1262,20 @@ export async function findErpDocs(env, nos) {
 // The browser never talks to ERP itself; the key stays in the Worker.
 function pdfFileName(d) {
   const clean = s => String(s || '').replace(/[\\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim();
-  const sup = clean(d.supplier).slice(0, 100);
+  const sup = clean(d.supplierName || d.supplier).slice(0, 100);
   return clean(d.name).replace(/ /g, '-') + (sup ? ' - ' + sup : '') + '.pdf';
+}
+// The PDF in the document's default print format. A permission or print-format failure comes back
+// as an HTML page, not a PDF, so the %PDF start is checked.
+async function erpPdfBytes(env, d) {
+  const res = await fetch(ERP_BASE + '/api/method/frappe.utils.print_format.download_pdf?doctype=' + encodeURIComponent(d.doctype) +
+    '&name=' + encodeURIComponent(d.name) + '&no_letterhead=0', { headers: { Authorization: 'token ' + erpToken(env) } });
+  const pdf = new Uint8Array(await res.arrayBuffer());
+  if (!res.ok || pdf.length < 4 || pdf[0] !== 0x25 || pdf[1] !== 0x50 || pdf[2] !== 0x44 || pdf[3] !== 0x46) {
+    throw new Error('ERP did not return a PDF for ' + d.name + (res.ok ? '' : ' (HTTP ' + res.status + ')') +
+      '. Please check its print format and the API user\'s permissions.');
+  }
+  return pdf;
 }
 async function erpPdf(env, no) {
   const q = String(no || '').trim();
@@ -1269,17 +1284,126 @@ async function erpPdf(env, no) {
   let d;
   try { d = (await findErpDocs(env, [q]))[q]; } catch (e) { return json({ error: e.message }, 502); }
   if (!d) return json({ error: q + ' was not found in ERP (searched Purchase Invoices, Purchase Receipts and Journal Entries).' }, 404);
-  const res = await fetch(ERP_BASE + '/api/method/frappe.utils.print_format.download_pdf?doctype=' + encodeURIComponent(d.doctype) +
-    '&name=' + encodeURIComponent(d.name) + '&no_letterhead=0', { headers: { Authorization: 'token ' + erpToken(env) } });
-  const pdf = new Uint8Array(await res.arrayBuffer());
-  // A permission or print-format failure comes back as an HTML page, not a PDF: check the %PDF start.
-  if (!res.ok || pdf.length < 4 || pdf[0] !== 0x25 || pdf[1] !== 0x50 || pdf[2] !== 0x44 || pdf[3] !== 0x46) {
-    return json({ error: 'ERP did not return a PDF for ' + d.name + (res.ok ? '' : ' (HTTP ' + res.status + ')') +
-      '. Please check its print format and the API user\'s permissions.' }, 502);
-  }
+  let pdf;
+  try { pdf = await erpPdfBytes(env, d); } catch (e) { return json({ error: e.message }, 502); }
   const file = pdfFileName(d);
   return new Response(pdf, { headers: Object.assign({ 'Content-Type': 'application/pdf',
     'Content-Disposition': 'attachment; filename="' + file.replace(/[^\x20-\x7e]/g, '_') + '"; filename*=UTF-8\'\'' + encodeURIComponent(file) }, SEC_HEADERS) });
+}
+
+// Sending a document to the supplier's WhatsApp group ("XPP | Supplier"). The group is found from the
+// supplier on the ERP document (the name in the task message is the fallback), shown to the user to
+// confirm or change, and remembered per supplier. The PDF goes through WaSender: uploaded first (its
+// media links last 24 hours), then sent to the group from the office number with a message.
+const NAME_STOP = new Set(['xpp', 'xxp', 'xp', 'pvt', 'private', 'ltd', 'limited', 'llp', 'co', 'company', 'the', 'and', 'ms', 'messrs',
+  'shri', 'shree', 'sri']);
+function nameTokens(s) {
+  return String(s || '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim().split(' ')
+    .filter(w => w.length > 1 && !NAME_STOP.has(w) && !/^s\d{3,}$/.test(w))   // "M/S", and "-S002511": ERP's supplier code
+    .map(w => (w.length > 3 ? w.replace(/s$/, '') : w));               // Steels = Steel, Papers = Paper
+}
+function sameWord(a, b) {             // equal, or one letter apart in a longer word (Shanker / Shankar)
+  if (a === b) return true;
+  if (a.length < 5 || b.length < 5 || Math.abs(a.length - b.length) > 1) return false;
+  let i = 0, j = 0, edits = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i++; j++; continue; }
+    if (++edits > 1) return false;
+    if (a.length > b.length) i++; else if (b.length > a.length) j++; else { i++; j++; }
+  }
+  return edits + (a.length - i) + (b.length - j) <= 1;
+}
+// "XPP | Paper vantage - IMP paper (Reel)" → "Paper vantage"; "XPP | Jyoti Timbers | Orders & Bills" → "Jyoti Timbers"
+function groupSupplier(name) {
+  return String(name || '').replace(/^\s*(?:XPP|XXP)\s*(?:\||[lI\-](?=\s))?\s*/i, '').split(/\s+[|\-–]\s+|\s*\(|\s*\|/)[0];
+}
+// names: supplier names to try (ERP's, then the task's). One name must contain the other, word for
+// word, starting with the same word — so "Ashish Papers" never lands in a group called just "Paper".
+// → {jid, name, count} | null; count > 1 when several groups match equally well.
+export function matchSupplierGroup(names, groups) {
+  const sources = (names || []).map(nameTokens).filter(t => t.length);
+  let best = null, bestScore = 0, count = 0;
+  for (const g of groups || []) {
+    if (!/^\s*(XPP|XXP)\b/i.test(g.name || '')) continue;
+    const gp = nameTokens(groupSupplier(g.name));
+    if (!gp.length) continue;
+    let score = 0;
+    for (const src of sources) {
+      const inName = gp.filter(w => src.some(x => sameWord(w, x))).length;
+      const inGroup = src.filter(w => gp.some(x => sameWord(w, x))).length;
+      if (inName !== gp.length && inGroup !== src.length) continue;
+      if (!sameWord(gp[0], src[0])) continue;
+      score = Math.max(score, Math.min(inName, inGroup) * 10 - Math.abs(gp.length - src.length));
+    }
+    if (score <= 0) continue;
+    if (score > bestScore) { best = g; bestScore = score; count = 1; } else if (score === bestScore) count++;
+  }
+  return best ? { jid: best.jid, name: String(best.name).trim(), count } : null;
+}
+function supplierKey(d, supplier) { return String((d && d.supplier) || supplier || '').trim().toLowerCase(); }
+
+async function docSendInfo(env, no, supplier) {
+  no = String(no || '').trim();
+  if (!erpToken(env)) throw new Error(ERP_NOT_SET);
+  const d = (await findErpDocs(env, [no]))[no];
+  if (!d) throw new Error(no + ' was not found in ERP.');
+  const groups = (await env.DB.prepare("SELECT jid, name FROM chats WHERE kind = 'group' AND name IS NOT NULL").all()).results;
+  let map = {};
+  try { map = JSON.parse((await getSetting(env, 'reco_groups')) || '{}'); } catch (e) { map = {}; }
+  const known = groups.find(g => g.jid === map[supplierKey(d, supplier)]);
+  const group = known ? { jid: known.jid, name: String(known.name).trim(), count: 1, how: 'remembered' }
+    : Object.assign(matchSupplierGroup([d.supplierName, d.supplier, supplier], groups) || {}, { how: 'matched' });
+  const sent = await env.DB.prepare('SELECT t, chat_name FROM doc_sends WHERE doc = ? ORDER BY t DESC LIMIT 1').bind(no).first();
+  return { doc: d, file: pdfFileName(d), group: group.jid ? group : null, sent: sent ? { t: sent.t, chatName: sent.chat_name } : null };
+}
+
+// WaSender allows about one message every 5 seconds; when it says "too many", wait and try again.
+async function waRetry(fn) {
+  for (let i = 0; ; i++) {
+    try { return await fn(); } catch (e) {
+      if (/ 429:/.test(e.message) && i < 2) { await new Promise(r => setTimeout(r, 6000)); continue; }
+      throw e;
+    }
+  }
+}
+export async function waUpload(env, bytes, mime) {
+  if (!env.WASENDER_API_KEY) throw new Error('WASENDER_API_KEY is not set.');
+  const res = await fetch(API + '/upload', { method: 'POST', headers: { Authorization: 'Bearer ' + env.WASENDER_API_KEY, 'Content-Type': mime }, body: bytes });
+  const text = await res.text();
+  let body = {};
+  try { body = JSON.parse(text); } catch (e) { body = {}; }
+  const url = body.publicUrl || (body.data && body.data.publicUrl);
+  if (!res.ok || body.success === false || !url) throw new Error('WaSender ' + res.status + ': ' + (body.message || text.slice(0, 200) || 'upload failed'));
+  return url;
+}
+
+async function sendErpDoc(env, o) {
+  o = o || {};
+  const no = String(o.no || '').trim(), jid = String(o.jid || ''), caption = String(o.caption || '').trim();
+  if (!no) throw new Error('The document number is missing.');
+  if (!/@g\.us$/.test(jid)) throw new Error('Please choose the supplier\'s WhatsApp group.');
+  if (caption.length > 1000) throw new Error('Please keep the message under 1,000 characters.');
+  const g = await env.DB.prepare("SELECT name FROM chats WHERE jid = ? AND kind = 'group'").bind(jid).first();
+  if (!g) throw new Error('This group is not in the list — use "Refresh group names" in Setup.');
+  if (!erpToken(env)) throw new Error(ERP_NOT_SET);
+  const d = (await findErpDocs(env, [no]))[no];
+  if (!d) throw new Error(no + ' was not found in ERP.');
+  if (d.status === 'Cancelled' || d.status === 'Draft') throw new Error(d.name + ' is ' + d.status.toLowerCase() + ' in ERP, so it was not sent.');
+  const pdf = await erpPdfBytes(env, d);
+  const file = pdfFileName(d);
+  const url = await waRetry(() => waUpload(env, pdf, 'application/pdf'));
+  await waRetry(() => wa(env, 'POST', '/send-message', Object.assign({ to: jid, documentUrl: url, fileName: file }, caption ? { text: caption } : {})));
+  const now = Date.now(), chatName = String(g.name || '').trim();
+  await env.DB.prepare('INSERT INTO doc_sends (id, t, doc, erp_name, doctype, file, chat, chat_name, supplier, caption) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .bind(randomHex(8), now, no, d.name, d.doctype, file, jid, chatName, d.supplier || String(o.supplier || ''), caption).run();
+  const key = supplierKey(d, o.supplier);
+  if (key) {
+    let map = {};
+    try { map = JSON.parse((await getSetting(env, 'reco_groups')) || '{}'); } catch (e) { map = {}; }
+    map[key] = jid;
+    await setSetting(env, 'reco_groups', JSON.stringify(map));
+  }
+  return { t: now, chat: jid, chatName, file };
 }
 
 // ===================================================================
@@ -1567,6 +1691,8 @@ const RPC = {
   touchWa: () => true,
   getWaReco: (env) => getReco(env),
   findErpDocs: (env, a) => findErpDocs(env, a[0]),
+  getDocSendInfo: (env, a) => docSendInfo(env, a[0], a[1]),
+  sendErpDocToGroup: (env, a) => sendErpDoc(env, a[0]),
   getClaudeRequests: (env) => getRequests(env),
   addClaudeRequest: (env, a) => addRequest(env, a[0], a[1]),
   cancelClaudeRequest: (env, a) => cancelRequest(env, a[0]),

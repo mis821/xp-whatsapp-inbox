@@ -18,10 +18,12 @@
 //   ACTION=send GROUP='["name",…]' | PHONE=… TEXT=… [NAME=image URL] [PAUSE=seconds or seconds/batch/break]
 //                                          → send one message (or image + caption) to each listed group, or to one number;
 //                                            with a batch, up to 300 groups in one run (send runs queue one after another)
-//   ACTION=erpcheck [TEXT=number,number]   → whether ERP accepts ERP_API_TOKEN, and where the 🧾 Reconciliation tab's document
-//                                            numbers (or the ones given) are found in ERP (read only; never prints the key)
+//   ACTION=erpcheck [TEXT=number,number]   → whether ERP accepts ERP_API_TOKEN, where the 🧾 Reconciliation tab's document
+//                                            numbers (or the ones given) are found in ERP, which WhatsApp group each supplier's
+//                                            documents would be offered for, and whether WaSender accepts a PDF upload (a blank
+//                                            one-page PDF). Nothing is sent to anyone; the key is never printed.
 import { execFileSync } from 'node:child_process';
-import { GREETINGS, greetingFor, parseRecoTask, findErpDocs } from '../src/app.js';
+import { GREETINGS, greetingFor, parseRecoTask, findErpDocs, matchSupplierGroup, waUpload } from '../src/app.js';
 
 const STATUSES = ['asked', 'working', 'done', 'failed'];
 const sql = s => "'" + String(s).replace(/'/g, "''") + "'";
@@ -354,6 +356,17 @@ if (ACTION === 'list') {
     const b = new Uint8Array(await res.arrayBuffer());
     console.log('ERP_PDF ' + JSON.stringify({ name: first.name, http: res.status, bytes: b.length, pdf: b.length > 4 && String.fromCharCode(...b.slice(0, 4)) === '%PDF' }));
   }
+  // The group "📤 Send to group" would offer for each task's supplier (from the ERP supplier name, then the task's).
+  const groups = d1("SELECT jid, name FROM chats WHERE kind = 'group' AND name IS NOT NULL");
+  console.log('ERP_GROUPS ' + JSON.stringify(tasks.map(t => {
+    const d = t.rows.map(r => out[r.doc]).concat(t.notes.flatMap(n => n.docs.map(x => out[x]))).find(Boolean);
+    const m = matchSupplierGroup([d && d.supplierName, d && d.supplier, t.supplier], groups);
+    return { task: t.supplier.slice(0, 40), erp: d ? d.supplierName || d.supplier : null, group: m ? m.name : null, ties: m ? m.count : 0 };
+  }).filter(x => x.erp)));
+  const blank = new TextEncoder().encode('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj ' +
+    '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 72 72]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF');
+  try { console.log('WA_UPLOAD ' + JSON.stringify({ ok: true, host: new URL(await waUpload(process.env, blank, 'application/pdf')).host })); }
+  catch (e) { console.log('WA_UPLOAD ' + JSON.stringify({ ok: false, error: e.message.slice(0, 200) })); }
 } else {
   throw new Error('ACTION must be list, update, sessions, groups, rename, addmember, queueadd, removemember, checkmember, admins, groupadmins, invitelinks, status, send, greet or erpcheck');
 }

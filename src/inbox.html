@@ -270,7 +270,9 @@
   .rsup { font-weight: 800; font-size: 13px; text-transform: uppercase; color: #134e4a; }
   .ract { display: flex; gap: 6px; flex-shrink: 0; }
   .btn.rdone { background: var(--green); border-color: var(--green); color: #fff; }
-  .erpc { display: flex; gap: 6px; align-items: center; }
+  .erpc { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .btn.send { background: var(--teal); border-color: var(--teal); color: #fff; }
+  .erp-sent { font-size: 11px; font-weight: 700; color: var(--green); white-space: nowrap; }
   .erp-link { font-size: 11px; font-weight: 700; color: var(--brand); text-decoration: none; white-space: nowrap; }
   .erp-warn { font-size: 10px; font-weight: 800; color: #fff; background: var(--amber); border-radius: 4px; padding: 1px 5px; }
   .erp-warn.cx { background: var(--red); }
@@ -335,7 +337,8 @@
   <!-- ============ RECONCILIATION (task-system tasks with their documents) ============ -->
   <section id="v-reco" hidden>
     <p class="viewnote">Reconciliation tasks assigned by the task system ("one task for you"), one block per supplier with every document it names.
-      <b>⬇ PDF</b> downloads that document straight from ERP. A task marked <b>✓ Done</b> here is also done on the Task List.</p>
+      <b>⬇ PDF</b> downloads that document straight from ERP; <b>📤 Send to group</b> sends it to the supplier's XPP group on WhatsApp after you check
+      the group and the message. A task marked <b>✓ Done</b> here is also done on the Task List.</p>
     <div class="toolbar">
       <input type="search" id="rq" placeholder="Search supplier, document number or bill number…">
       <button class="btn" id="recoCsv" title="Download the rows shown below">⬇ Excel</button>
@@ -1014,18 +1017,68 @@
       if (VIEW === 'reco') { renderReco(); erpLookupNext(); }
     }, function (e) { ERP_BUSY = false; ERP_ERR = e.message; if (VIEW === 'reco') renderReco(); });
   }
-  function erpCell(no) {
+  function erpCell(no, key) {
     if (!RECO.erp.connected) return '<span class="meta">ERP not connected</span>';
     var info = ERPC[no];
     if (info === null) return '<span class="erp-miss">Not found in ERP</span>';
     var btn = '<button class="btn sm pri" data-act="erp-pdf" data-no="' + esc(no) + '"' + (DL[no] ? ' disabled>Downloading…' : '>⬇ PDF') + '</button>';
-    if (!info) return '<div class="erpc">' + btn + (ERP_ERR ? '' : '<span class="meta">Checking ERP…</span>') + '</div>';
+    var sent = (RECO.sends || {})[no];
+    // Cancelled and draft documents are never sent to a supplier.
+    var send = !info || (info.status !== 'Cancelled' && info.status !== 'Draft')
+      ? '<button class="btn sm send" data-act="erp-send" data-no="' + esc(no) + '" data-k="' + esc(key) + '" title="Send this PDF to the supplier\'s WhatsApp group">📤 Send to group</button>' : '';
+    var sentTag = sent ? '<span class="erp-sent" title="Sent to ' + esc(sent.chatName) + ' on ' + esc(fullTime(sent.t)) + '">✓ Sent ' + esc(fmtTime(sent.t)) + '</span>' : '';
+    if (!info) return '<div class="erpc">' + btn + send + sentTag + (ERP_ERR ? '' : '<span class="meta">Checking ERP…</span>') + '</div>';
     var slug = info.doctype.toLowerCase().replace(/ /g, '-');
-    return '<div class="erpc">' + btn +
+    return '<div class="erpc">' + btn + send +
       '<a class="erp-link" target="_blank" rel="noopener" href="' + esc(RECO.erp.base + '/app/' + slug + '/' + encodeURIComponent(info.name)) +
         '" title="Open ' + esc(info.name) + ' in ERP">' + esc(info.doctype) + (info.name !== no ? ' · ' + esc(info.name) : '') + ' ↗</a>' +
       (info.status === 'Cancelled' ? '<span class="erp-warn cx">Cancelled</span>' : info.status === 'Draft' ? '<span class="erp-warn">Draft</span>' : '') +
-      '</div>';
+      sentTag + '</div>';
+  }
+  // The message that goes with the PDF — written from the task row, editable before sending.
+  function docCaption(t, row, d) {
+    var issue = ((row && row.issue) || '') + ' ' + (t.summary || '');
+    var kind = /debit note/i.test(issue) || (d && d.isReturn) ? 'debit note' : /credit note/i.test(issue) ? 'credit note' : 'document';
+    var s = 'Dear Sir/Madam,\nPlease find attached our ' + kind + ' ' + ((d && d.name) || (row && row.doc) || '');
+    if (row && row.date) s += ' dated ' + row.date;
+    if (row && row.amount) s += ' for ₹' + inr(row.amount);
+    if (row && row.bill) s += ' (against your bill no. ' + row.bill + ')';
+    s += '.';
+    if (/ledger|\bbooks?\b|booked/i.test(issue)) s += '\nIt is not yet booked in your ledger — kindly book it and confirm.';
+    return s + '\n\nRegards,\nPurchase Team, XpertPack';
+  }
+  // Asks the server for the document, the supplier's group (remembered, or matched from the ERP
+  // supplier name) and any earlier send; the user checks the group and the message, then sends.
+  function openSendDoc(no, key, el) {
+    var t = recoTask(key);
+    if (!t || !D) return;
+    var row = t.rows.filter(function (r) { return r.doc === no; })[0];
+    call('getDocSendInfo', [no, t.supplier], function (x) {
+      ERPC[no] = x.doc;
+      var g = x.group, sup = x.doc.supplierName || x.doc.supplier || t.supplier;
+      var hint = !g ? 'No WhatsApp group matched the supplier <b>' + esc(sup) + '</b> — please find and choose it.'
+        : g.how === 'remembered' ? 'This is the group you used for this supplier before.'
+        : g.count > 1 ? '<b>' + g.count + ' groups</b> match the supplier name equally well — please check this is the right one.'
+        : 'Picked from the supplier name in ERP (<b>' + esc(sup) + '</b>) — please check it is the right group.';
+      openModal('📤 Send ' + no + ' to the supplier',
+        '<div class="quote">📄 <b>' + esc(x.file) + '</b><br>' + esc(x.doc.doctype) + ' ' + esc(x.doc.name) + ' · ERP supplier: ' + esc(sup) + '</div>' +
+        (x.sent ? '<div class="banner amber">⚠️ Already sent to <b>' + esc(x.sent.chatName) + '</b> on ' + esc(fullTime(x.sent.t)) + '.</div>' : '') +
+        '<label>Find group</label><input type="text" id="n-find" placeholder="Type a name…">' +
+        '<label>Send to group</label><select id="n-group">' + groupOptions('', g ? g.jid : '') + '</select>' +
+        '<p class="hint">' + hint + '</p>' +
+        '<label>Message with the PDF</label><textarea id="n-text" rows="8">' + esc(docCaption(t, row, x.doc)) + '</textarea>' +
+        '<p class="hint">The PDF goes to the group from the office number (through WaSender). The group you choose is remembered for this supplier.</p>',
+        '📤 Send PDF', function (btn) {
+          var jid = $('n-group').value, msg = $('n-text').value.trim();
+          if (!jid) { $('modalErr').textContent = 'Please choose the supplier\'s group.'; return; }
+          btn.disabled = true; btn.textContent = 'Sending…'; $('modalErr').textContent = '';
+          rpc('sendErpDocToGroup', [{ no: no, jid: jid, caption: msg, supplier: t.supplier }], function (res) {
+            RECO.sends = RECO.sends || {};
+            RECO.sends[no] = { t: res.t, chatName: res.chatName };
+            closeModal(); toast('📤 ' + no + ' sent to ' + res.chatName); renderReco();
+          }, function (e) { btn.disabled = false; btn.textContent = '📤 Send PDF'; $('modalErr').textContent = e.message; });
+        });
+    }, el);
   }
   function renderReco() {
     if (!RECO) return;
@@ -1071,13 +1124,13 @@
         sr++;
         h += '<tr><td>' + sr + '</td><td>' + esc(t.supplier) + '</td><td><b>' + esc(r.doc) + '</b></td><td>' + esc(r.date) + '</td>' +
           '<td class="num">' + inr(r.amount) + '</td><td>' + esc(r.bill) + '</td>' +
-          '<td class="wrapc">' + esc([r.issue, r.note].filter(Boolean).join(' — ')) + '</td><td>' + erpCell(r.doc) + '</td></tr>';
+          '<td class="wrapc">' + esc([r.issue, r.note].filter(Boolean).join(' — ')) + '</td><td>' + erpCell(r.doc, t.key) + '</td></tr>';
       });
       v.notes.forEach(function (n) {
         sr++;
         h += '<tr class="rnote"><td>' + sr + '</td><td>' + esc(t.supplier) + '</td><td>' +
           (n.docs.length ? n.docs.map(function (d) { return '<b>' + esc(d) + '</b>'; }).join('<br>') : '—') + '</td>' +
-          '<td colspan="4" class="wrapc">' + esc(n.text) + '</td><td>' + n.docs.map(erpCell).join('') + '</td></tr>';
+          '<td colspan="4" class="wrapc">' + esc(n.text) + '</td><td>' + n.docs.map(function (d) { return erpCell(d, t.key); }).join('') + '</td></tr>';
       });
       if (!t.rows.length && !t.notes.length) h += '<tr><td colspan="8" class="meta">No documents are listed in this task.</td></tr>';
     });
@@ -1109,14 +1162,14 @@
   }
   function recoCsv() {
     var rows = [['Sr No.', 'Supplier', 'Task', 'Document No.', 'Date', 'Amount (Rs)', 'Their bill no.', 'Issue',
-                 'ERP document type', 'ERP document', 'ERP status', 'Received', 'Status', 'Task link']];
+                 'ERP document type', 'ERP document', 'ERP status', 'Sent to group', 'Sent at', 'Received', 'Status', 'Task link']];
     var sr = 0;
     recoVisible().forEach(function (v) {
       var t = v.t;
       var tail = function (doc) {
-        var e = ERPC[doc];
+        var e = ERPC[doc], sn = (RECO.sends || {})[doc];
         return [e ? e.doctype : e === null ? 'Not found in ERP' : '', e ? e.name : '', e ? e.status : '',
-                fullTime(t.t), t.open ? 'Open' : 'Done ' + fullTime(t.doneAt), t.url];
+                sn ? sn.chatName : '', sn ? fullTime(sn.t) : '', fullTime(t.t), t.open ? 'Open' : 'Done ' + fullTime(t.doneAt), t.url];
       };
       v.rows.forEach(function (r) {
         rows.push([++sr, t.supplier, t.summary, r.doc, r.date, r.amount, r.bill, [r.issue, r.note].filter(Boolean).join(' — ')].concat(tail(r.doc)));
@@ -1949,6 +2002,7 @@
     else if (a === 'tf') { TF = el.dataset.f; renderTaskList(); }
     else if (a === 'rf') { RF = el.dataset.f; renderReco(); erpLookupNext(); }
     else if (a === 'erp-pdf') erpDownload(el.dataset.no);
+    else if (a === 'erp-send') openSendDoc(el.dataset.no, el.dataset.k, el);
     else if (a === 'erp-retry') { ERP_ERR = ''; renderReco(); erpLookupNext(); }
     else if (a === 'reco-done' || a === 'reco-undo') {
       var rt = recoTask(el.dataset.k), rdone = a === 'reco-done';

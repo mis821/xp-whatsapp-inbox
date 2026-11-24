@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { makeD1 } from './d1.mjs';
-import { makeWorker, dayKey, parseKaam, shortParty, briefText, flagReasons, ownerOf, taskKey, paymentChats, parseRecoTask, docKey } from '../src/app.js';
+import { makeWorker, dayKey, parseKaam, shortParty, briefText, flagReasons, ownerOf, taskKey, paymentChats, parseRecoTask, docKey, matchSupplierGroup } from '../src/app.js';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const ME_PN = '919999900000', ME_LID = '123450000000001';
@@ -643,14 +643,18 @@ await rpc('setWaLockMinutes', 15);
   assert.match((await pr.json()).error, /ERP_API_TOKEN/);
 
   // A fake ERPNext: names as ERP has them, the list API with "in" / "like" filters, and the PDF method.
-  const ERP = { 'Purchase Invoice': [{ name: 'PRET-2627-00031', supplier: 'Shivani Steels', posting_date: '2026-06-18', grand_total: 5499, docstatus: 1, is_return: 1, bill_no: '864' },
+  const ERP = { 'Purchase Invoice': [{ name: 'PRET-2627-00031', supplier: 'Shivani Steels-S000123', supplier_name: 'Shivani Steels', posting_date: '2026-06-18', grand_total: 5499, docstatus: 1, is_return: 1, bill_no: '864' },
                                      { name: 'PRET-HR-26270013', supplier: 'Shivani Steels', posting_date: '2026-08-26', grand_total: 10864, docstatus: 2, is_return: 1, bill_no: '1834' },
                                      { name: 'PRET-25-00168', supplier: 'Shanker Traders', posting_date: '2025-09-22', grand_total: 2067, docstatus: 1, is_return: 1 }],
                 'Purchase Receipt': [], 'Journal Entry': [{ name: 'PRET-GJ-26270003', posting_date: '2026-09-23', docstatus: 1, total_debit: 99768, voucher_type: 'Debit Note', title: 'Shanker' }] };
-  const erpCalls = [];
+  const erpCalls = [], uploads = [];
   let erpDown = 0;
   const baseFetch = globalThis.fetch;
   globalThis.fetch = async (url, opts = {}) => {
+    if (String(url) === 'https://www.wasenderapi.com/api/upload') {
+      uploads.push({ type: opts.headers['Content-Type'], body: Buffer.from(opts.body).toString() });
+      return new Response(JSON.stringify({ success: true, publicUrl: 'https://wasenderapi.com/media/up' + uploads.length + '.pdf' }));
+    }
     const u = new URL(String(url));
     if (u.origin !== 'https://xpertpack.frappe.cloud') return baseFetch(url, opts);
     erpCalls.push(u.pathname + u.search);
@@ -707,6 +711,48 @@ await rpc('setWaLockMinutes', 15);
   await assert.rejects(rpc('findErpDocs', ['PRET-NEW-1']), /ERP refused the API key/);
   assert.match((await (await req('/erp/pdf?no=PRET-NEW-2', { headers: { cookie } })).json()).error, /refused/);
   erpDown = 0;
+
+  // 📤 Send to the supplier's group: the group comes from the ERP supplier name, is confirmed by the user, and is remembered.
+  const REAL = ['XPP | Shivani Steel', 'XPP | Shanker International ', 'XPP | Paper vantage - IMP paper (Reel)', 'XPP | Ashish Paper - Paper',
+    'XPP | Sohna Gum Industries', 'XPP | Jyoti Timbers | Orders & Bills', 'XPP | Paper', 'Internal Payment Request'].map((name, i) => ({ jid: 'R' + i + '@g.us', name }));
+  const pickFor = (...names) => (matchSupplierGroup(names, REAL) || {}).name || null;
+  assert.equal(pickFor('Shivani Steels'), 'XPP | Shivani Steel', 'plural / singular');
+  assert.equal(pickFor('Shanker International Private Limited-S000456', 'Shanker'), 'XPP | Shanker International', 'legal name and supplier code');
+  assert.equal(pickFor('Paper Vantage India Pvt Ltd'), 'XPP | Paper vantage - IMP paper (Reel)', 'the specific group beats a one-word "Paper" group');
+  assert.equal(pickFor('Ashish Papers'), 'XPP | Ashish Paper - Paper');
+  assert.equal(pickFor('Jyoti Timbers'), 'XPP | Jyoti Timbers | Orders & Bills');
+  assert.equal(pickFor('Shankar International'), 'XPP | Shanker International', 'one letter apart');
+  assert.equal(pickFor('Bhola Ram Papers'), null, 'sharing only a generic word is not a match');
+  assert.equal(pickFor('Internal Payment'), null, 'only supplier (XPP) groups');
+  assert.equal(matchSupplierGroup(['Shivani Steels'], REAL.concat([{ jid: 'R9@g.us', name: 'XPP | Shivani Steels' }])).count, 2, 'a tie is reported');
+
+  env.DB.raw.prepare("INSERT INTO chats (jid, name, kind) VALUES ('GSS@g.us', 'XPP | Shivani Steel', 'group'), ('GPA@g.us', 'XPP | Paper', 'group')").run();
+  let info = await rpc('getDocSendInfo', 'PRET262700031', 'Shivani Steels');
+  assert.deepEqual([info.group.jid, info.group.how, info.sent], ['GSS@g.us', 'matched', null]);
+  assert.equal(info.file, 'PRET-2627-00031 - Shivani Steels.pdf', 'the readable ERP supplier name, not its code');
+  assert.equal(info.doc.supplierName, 'Shivani Steels');
+  await assert.rejects(rpc('sendErpDocToGroup', { no: 'PRET262700031', jid: 'NOPE@g.us' }), /not in the list/);
+  await assert.rejects(rpc('sendErpDocToGroup', { no: 'PRET262700031', jid: '919999@s.whatsapp.net' }), /choose the supplier's WhatsApp group/);
+  await assert.rejects(rpc('sendErpDocToGroup', { no: 'PRET-HR-26270013', jid: 'GSS@g.us' }), /PRET-HR-26270013 is cancelled in ERP, so it was not sent/);
+  await assert.rejects(rpc('sendErpDocToGroup', { no: 'PRET262700087', jid: 'GSS@g.us' }), /not found in ERP/);
+  assert.equal(uploads.length, 0, 'nothing uploaded for a refused send');
+  const sentBefore = sent.length;
+  const res = await rpc('sendErpDocToGroup', { no: 'PRET262700031', jid: 'GSS@g.us', caption: 'Dear Sir/Madam,\nPlease find attached our debit note.', supplier: 'Shivani Steels' });
+  assert.equal(res.chatName, 'XPP | Shivani Steel');
+  assert.deepEqual(uploads, [{ type: 'application/pdf', body: '%PDF-1.4 Purchase Invoice PRET-2627-00031' }], 'the ERP PDF is uploaded to WaSender');
+  assert.equal(sent.length, sentBefore + 1);
+  assert.deepEqual(sent.at(-1), { to: 'GSS@g.us', documentUrl: 'https://wasenderapi.com/media/up1.pdf', fileName: 'PRET-2627-00031 - Shivani Steels.pdf',
+    text: 'Dear Sir/Madam,\nPlease find attached our debit note.' });
+  rc = await rpc('getWaReco');
+  assert.equal(rc.sends.PRET262700031.chatName, 'XPP | Shivani Steel', 'the row shows it was sent');
+  info = await rpc('getDocSendInfo', 'PRET262700031', 'Shivani Steels');
+  assert.equal(info.group.how, 'remembered');
+  assert.equal(info.sent.chatName, 'XPP | Shivani Steel', 'a second send is warned about');
+  // The group chosen for a supplier wins over the name match next time, for any of its documents.
+  await rpc('sendErpDocToGroup', { no: 'PRET262700031', jid: 'GPA@g.us', caption: '', supplier: 'Shivani Steels' });
+  assert.equal(sent.at(-1).text, undefined, 'an empty message sends the PDF alone');
+  assert.equal((await rpc('getDocSendInfo', 'PRET262700031', 'Shivani Steels')).group.jid, 'GPA@g.us');
+  assert.equal((await rpc('getDocSendInfo', 'PRET-GJ-26270003', 'Shanker')).group, null, 'no group for Shanker in this inbox');
 
   // Done here = done on the Task List; a new reminder for the same task opens it again.
   await rpc('markWaFlags', shiv.openIds, true);

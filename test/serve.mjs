@@ -17,7 +17,9 @@ function fakeErp(u) {
     const dt = decodeURIComponent(u.pathname.slice(14)), [[, op, val]] = JSON.parse(u.searchParams.get('filters'));
     const re = new RegExp('^' + String(val).split('%').map(x => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*') + '$', 'i');
     const data = (ERP[dt] || []).filter(n => op === 'in' ? val.includes(n) : re.test(n))
-      .map(name => ({ name, supplier: 'Demo Supplier', posting_date: '2026-06-18', grand_total: 5499, total_debit: 5499, docstatus: name.includes('HR') ? 2 : 1 }));
+      .map(name => ({ name, supplier: (name.startsWith('PRET-25') ? 'Maruti Paper Mills Pvt Ltd' : 'Shivani Steels') + '-S000123',
+        supplier_name: name.startsWith('PRET-25') ? 'Maruti Paper Mills Pvt Ltd' : 'Shivani Steels', posting_date: '2026-06-18', grand_total: 5499, total_debit: 5499,
+        is_return: 1, docstatus: name.includes('HR') ? 2 : 1 }));
     return new Response(JSON.stringify({ data }));
   }
   return new Response(PDF, { headers: { 'content-type': 'application/pdf' } });
@@ -26,6 +28,7 @@ globalThis.fetch = async (url, opts = {}) => {
   if (String(url).startsWith('https://xpertpack.frappe.cloud')) return fakeErp(new URL(String(url)));
   const path = String(url).replace('https://www.wasenderapi.com/api', '');
   const j = d => new Response(JSON.stringify(d));
+  if (path === '/upload') return j({ success: true, publicUrl: 'https://wasenderapi.com/media/demo.pdf' });
   if (path === '/user') return j({ data: { id: ME_PN + ':1@s.whatsapp.net', lid: ME_LID + ':1@lid', name: 'XP Purchase' } });
   if (path === '/status') return j({ status: 'connected' });
   if (path === '/groups') return j({ data: groups.map(g => ({ id: g[0], name: g[1] })) });

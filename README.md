@@ -34,7 +34,7 @@ Write work requests for Claude on the dashboard and choose which Claude conversa
 1. **Cloudflare account (free):** https://dash.cloudflare.com/sign-up — open **Workers & Pages** once so the `*.workers.dev` address is created.
 2. **API token:** My Profile → API Tokens → Create Token → template **"Edit Cloudflare Workers"**, add **Account → D1 → Edit**. Note the **Account ID** shown on Workers & Pages.
 3. **GitHub secrets** (Settings → Secrets and variables → Actions): `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `WASENDER_API_KEY`, `DASHBOARD_PASSWORD`.
-   Optional: `ERP_API_TOKEN` — the ERPNext API key and secret written as `key:secret` (ERPNext → User → API Access → Generate Keys; the PO Tracker uses the same kind of key). Without it the 🧾 Reconciliation tab still lists the tasks, but cannot download PDFs.
+   Optional: `ERP_API_TOKEN` — the ERPNext API key and secret written as `key:secret` (ERPNext → User → API Access → Generate Keys; the PO Tracker uses the same kind of key, and its name for it, `ERP15_API_TOKEN`, is accepted too). It must be saved in this repository — a secret saved in the PO Tracker's repository is not visible here. Without it the 🧾 Reconciliation tab still lists the tasks, but cannot download PDFs.
 4. **Deploy:** Actions → Deploy → Run workflow. The summary shows the dashboard URL. Every push to `main` deploys automatically.
 5. **Messages from WhatsApp Web:** dashboard → ⚙️ Setup → install Tampermonkey, enable "Allow User Scripts", install the script, reload WhatsApp Web. A green "XP Inbox: live ✓" label confirms it is running.
 

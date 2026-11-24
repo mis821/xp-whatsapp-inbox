@@ -1192,7 +1192,7 @@ const ERP_TYPES = [
 ];
 const ERP_BATCH = 8;                                  // numbers per lookup — keeps each call well under the Worker's 50 sub-requests
 const ERP_FOUND_MS = 6 * 3600000, ERP_MISS_MS = 3600000;
-const ERP_NOT_SET = 'ERP is not connected yet. Add the GitHub secret ERP_API_TOKEN (the ERPNext API key and secret, written as key:secret) and run Deploy.';
+const ERP_NOT_SET = 'ERP is not connected yet. Add the GitHub secret ERP_API_TOKEN to the xp-whatsapp-inbox repository (the ERPNext API key and secret, written as key:secret) and run Deploy.';
 const ERP_REFUSED = 'ERP refused the API key. Please check the ERP_API_TOKEN secret (key:secret) and that its ERP user can read Purchase Invoices.';
 function erpToken(env) { return String(env.ERP_API_TOKEN || '').trim(); }
 // Letters and digits only, upper case: "PRET262700031" and "PRET-2627-00031" are the same document.

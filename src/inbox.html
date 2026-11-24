@@ -1036,8 +1036,9 @@
       return '<button class="chip' + (RF === ch[0] ? ' active' : '') + '" data-act="rf" data-f="' + ch[0] + '">' + esc(ch[1]) + '<span class="c">' + ch[2] + '</span></button>';
     }).join('');
     $('rerp').innerHTML = !RECO.erp.connected
-      ? '<div class="banner amber">🔌 <b>ERP is not connected yet</b>, so documents cannot be downloaded. Add the GitHub secret <b>ERP_API_TOKEN</b> — ' +
-        'the ERPNext API key and secret written as <b>key:secret</b> (the same kind of key the PO Tracker uses) — then run <b>Actions → Deploy</b>.</div>'
+      ? '<div class="banner amber">🔌 <b>ERP is not connected yet</b>, so documents cannot be downloaded. In the <b>xp-whatsapp-inbox</b> repository on GitHub ' +
+        '(not the PO Tracker\'s), add the secret <b>ERP_API_TOKEN</b> under Settings → Secrets and variables → Actions — the ERPNext API key and secret ' +
+        'written as <b>key:secret</b> — then run <b>Actions → Deploy</b>.</div>'
       : ERP_ERR ? '<div class="banner red">⚠️ ' + esc(ERP_ERR) + ' <a href="#" data-act="erp-retry">Try again</a></div>' : '';
     var list = recoVisible();
     var sup = {}, docs = 0, amt = 0, checked = 0, found = 0;

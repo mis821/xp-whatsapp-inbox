@@ -346,6 +346,14 @@ if (ACTION === 'list') {
   const out = {};
   for (let i = 0; i < nos.length && i < 40; i += 8) Object.assign(out, await findErpDocs({ DB, ERP_API_TOKEN: token }, nos.slice(i, i + 8)));
   console.log('ERP_DOCS ' + JSON.stringify(Object.entries(out).map(([q, d]) => d ? { q, doctype: d.doctype, name: d.name, status: d.status } : { q, found: false })));
+  // The same PDF call the dashboard's ⬇ PDF button makes (default print format), for the first document found.
+  const first = Object.values(out).find(Boolean);
+  if (first) {
+    const res = await fetch('https://xpertpack.frappe.cloud/api/method/frappe.utils.print_format.download_pdf?doctype=' + encodeURIComponent(first.doctype) +
+      '&name=' + encodeURIComponent(first.name) + '&no_letterhead=0', { headers: { Authorization: 'token ' + token } });
+    const b = new Uint8Array(await res.arrayBuffer());
+    console.log('ERP_PDF ' + JSON.stringify({ name: first.name, http: res.status, bytes: b.length, pdf: b.length > 4 && String.fromCharCode(...b.slice(0, 4)) === '%PDF' }));
+  }
 } else {
   throw new Error('ACTION must be list, update, sessions, groups, rename, addmember, queueadd, removemember, checkmember, admins, groupadmins, invitelinks, status, send, greet or erpcheck');
 }

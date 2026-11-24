@@ -18,8 +18,10 @@
 //   ACTION=send GROUP='["name",…]' | PHONE=… TEXT=… [NAME=image URL] [PAUSE=seconds or seconds/batch/break]
 //                                          → send one message (or image + caption) to each listed group, or to one number;
 //                                            with a batch, up to 300 groups in one run (send runs queue one after another)
+//   ACTION=erpcheck [TEXT=number,number]   → whether ERP accepts ERP_API_TOKEN, and where the 🧾 Reconciliation tab's document
+//                                            numbers (or the ones given) are found in ERP (read only; never prints the key)
 import { execFileSync } from 'node:child_process';
-import { GREETINGS, greetingFor } from '../src/app.js';
+import { GREETINGS, greetingFor, parseRecoTask, findErpDocs } from '../src/app.js';
 
 const STATUSES = ['asked', 'working', 'done', 'failed'];
 const sql = s => "'" + String(s).replace(/'/g, "''") + "'";
@@ -327,6 +329,23 @@ if (ACTION === 'list') {
     }
   }
   console.log('ADMINS_JSON ' + JSON.stringify(results));
+} else if (ACTION === 'erpcheck') {
+  const token = String(process.env.ERP_API_TOKEN || '').trim();
+  const tasks = d1("SELECT m.text FROM flags f JOIN messages m ON m.id = f.msg_id WHERE f.reasons LIKE '%tasksys%' " +
+    "AND m.text LIKE '%one task for you%' ORDER BY f.t DESC LIMIT 50").map(r => parseRecoTask(r.text)).filter(Boolean);
+  console.log('RECO_TASKS ' + JSON.stringify(tasks.map(t => ({ supplier: t.supplier, rows: t.rows.length, notes: t.notes.length }))));
+  if (!token) { console.log('ERP_CHECK {"key":"not set"}'); process.exit(0); }
+  if (!/^[^:\s]+:[^:\s]+$/.test(token)) console.log('ERP_CHECK {"warning":"the key is not written as key:secret"}');
+  const who = await fetch('https://xpertpack.frappe.cloud/api/method/frappe.auth.get_logged_user', { headers: { Authorization: 'token ' + token } });
+  console.log('ERP_CHECK ' + JSON.stringify({ key: who.ok ? 'accepted' : 'refused', http: who.status }));
+  if (!who.ok) process.exit(0);
+  const given = (process.env.TEXT || '').split(/[\s,]+/).filter(Boolean);
+  const nos = given.length ? given : [...new Set(tasks.flatMap(t => t.rows.map(r => r.doc).concat(t.notes.flatMap(n => n.docs))))];
+  // findErpDocs keeps a cache in D1; here a no-op stand-in, so every number is really asked.
+  const DB = { prepare: () => ({ bind: () => ({ all: async () => ({ results: [] }) }) }), batch: async () => [] };
+  const out = {};
+  for (let i = 0; i < nos.length && i < 40; i += 8) Object.assign(out, await findErpDocs({ DB, ERP_API_TOKEN: token }, nos.slice(i, i + 8)));
+  console.log('ERP_DOCS ' + JSON.stringify(Object.entries(out).map(([q, d]) => d ? { q, doctype: d.doctype, name: d.name, status: d.status } : { q, found: false })));
 } else {
-  throw new Error('ACTION must be list, update, sessions, groups, rename, addmember, queueadd, removemember, checkmember, admins, groupadmins, invitelinks, status, send or greet');
+  throw new Error('ACTION must be list, update, sessions, groups, rename, addmember, queueadd, removemember, checkmember, admins, groupadmins, invitelinks, status, send, greet or erpcheck');
 }

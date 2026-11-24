@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: list, update, sessions, groups, rename, addmember, queueadd, removemember, checkmember, admins, groupadmins, invitelinks, status, send or greet
+        description: list, update, sessions, groups, rename, addmember, queueadd, removemember, checkmember, admins, groupadmins, invitelinks, status, send, greet or erpcheck
         required: true
         default: list
       id:
@@ -33,7 +33,7 @@ on:
         description: Seconds between groups (addmember 8-120, default 8; send 10-120, default 20, or seconds/batch/break)
         required: false
       text:
-        description: Message text (send only)
+        description: Message text (send); document numbers, comma-separated (erpcheck, optional)
         required: false
 
 # Long send runs wait for each other (never two sends at once); every other run goes straight ahead.
@@ -49,6 +49,7 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       WASENDER_API_KEY: ${{ secrets.WASENDER_API_KEY }}
+      ERP_API_TOKEN: ${{ secrets.ERP_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

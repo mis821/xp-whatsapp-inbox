@@ -258,12 +258,30 @@
     .rz.tag { background: #3a2c0c; color: #fcd34d; } .rz.neeraj { background: #2b1f47; color: #c4b5fd; } .rz.payment { background: #14321f; color: #86efac; }
   }
   .t-neeraj { background: #6d28d9; } .t-pay { background: var(--green); }
+
+  /* 🧾 Reconciliation — one table: a teal header row per task, then a row per document */
+  table.rt.reco th, table.rt.reco td { text-align: left; vertical-align: top; }
+  table.rt.reco th.num, table.rt.reco td.num { text-align: right; }
+  table.rt.reco td.wrapc { white-space: normal; min-width: 200px; max-width: 420px; line-height: 1.45; }
+  table.rt.reco tr.rgrp td { background: #f0fdfa; border-top: 2px solid var(--teal); white-space: normal; padding: 10px; }
+  table.rt.reco tr.rgrp.is-done td { background: #f3f4f6; border-top-color: #9ca3af; }
+  table.rt.reco tr.rnote td { background: #fffbeb; }
+  .rg { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .rsup { font-weight: 800; font-size: 13px; text-transform: uppercase; color: #134e4a; }
+  .ract { display: flex; gap: 6px; flex-shrink: 0; }
+  .btn.rdone { background: var(--green); border-color: var(--green); color: #fff; }
+  .erpc { display: flex; gap: 6px; align-items: center; }
+  .erp-link { font-size: 11px; font-weight: 700; color: var(--brand); text-decoration: none; white-space: nowrap; }
+  .erp-warn { font-size: 10px; font-weight: 800; color: #fff; background: var(--amber); border-radius: 4px; padding: 1px 5px; }
+  .erp-warn.cx { background: var(--red); }
+  .erp-miss { font-size: 11px; font-weight: 700; color: var(--red); }
 </style>
 </head>
 <body>
   <nav class="tabbar views">
     <button class="tab active" data-view="zaroori">⭐ Priority <span class="badge" id="b-zar"></span></button>
     <button class="tab" data-view="tasks">📋 Task List <span class="badge" id="b-tasks"></span></button>
+    <button class="tab" data-view="reco">🧾 Reconciliation <span class="badge" id="b-reco"></span></button>
     <button class="tab" data-view="owners">👑 Owners <span class="badge" id="b-owners"></span></button>
     <button class="tab" data-view="kaam">✅ Work List <span class="badge" id="b-kaam"></span></button>
     <button class="tab" data-view="review">🌆 Daily Review</button>
@@ -312,6 +330,20 @@
     <div class="chips" id="tchips"></div>
     <div class="count" id="tcount"></div>
     <div class="split"><div id="tlist"></div><aside class="detail" id="tdetail"></aside></div>
+  </section>
+
+  <!-- ============ RECONCILIATION (task-system tasks with their documents) ============ -->
+  <section id="v-reco" hidden>
+    <p class="viewnote">Reconciliation tasks assigned by the task system ("one task for you"), one block per supplier with every document it names.
+      <b>⬇ PDF</b> downloads that document straight from ERP. A task marked <b>✓ Done</b> here is also done on the Task List.</p>
+    <div class="toolbar">
+      <input type="search" id="rq" placeholder="Search supplier, document number or bill number…">
+      <button class="btn" id="recoCsv" title="Download the rows shown below">⬇ Excel</button>
+    </div>
+    <div class="chips" id="rchips"></div>
+    <div id="rerp"></div>
+    <div class="count" id="rcount"></div>
+    <div id="rlist"><div class="empty">Loading…</div></div>
   </section>
 
   <!-- ============ OWNERS ============ -->
@@ -543,6 +575,7 @@
       if (OPEN[j]) rpc('getWaChat', [j, DAYS], function (res) { CHAT[j] = res; var c = chatBy(j); if (c && OPEN[j]) rerenderChat(c); });
     });
     renderAll();
+    loadReco();
   }
 
   function renderAll() {
@@ -871,11 +904,12 @@
   // "Neeraj, 'Debit note to Shakti Gum' was due on 10 Oct. When will you close it? … (Hitesh's task) … https://…"
   function parseReminder(text) {
     var t = String(text || '');
-    var title = (t.match(/'([^']+)'/) || t.match(/"([^"]+)"/) || [])[1] || t.replace(/https?:\S+/g, '').slice(0, 120);
+    var head = t.match(/one task for you\s*[—–:,-]*\s*\n?\s*([^\n]+)/i);
+    var title = head ? head[1].trim() : (t.match(/'([^']+)'/) || t.match(/"([^"]+)"/) || [])[1] || t.replace(/https?:\S+/g, '').slice(0, 120);
     var due = (t.match(/due on ([0-9]{1,2} [A-Za-z]{3,9}(?: [0-9]{4})?)/i) || [])[1] || '';
     var whose = (t.match(/\(([^()]+?)'s task\)/i) || [])[1] || '';
     var url = (t.match(/https?:\/\/tools\.xpertpack\.in\/tasks\/\S+/i) || [])[0] || '';
-    return { title: title, due: due, whose: whose, url: url.replace(/[).,]+$/, '') };
+    return { title: title, due: due, whose: whose, url: url.replace(/[).,]+$/, ''), reco: !!head };
   }
   // All reminders of one task, newest first; the task is open while any of them is.
   function taskGroups() {
@@ -922,10 +956,179 @@
           (n > 1 ? '<span class="badge-pill r-over">' + n + ' reminders</span>' : '') + '</div>' +
         '<div class="card-actions">' +
           (i.url ? '<a class="bigbtn kaam" target="_blank" rel="noopener" href="' + esc(i.url) + '">🔗 Open task</a>' : '') +
+          (i.reco ? '<button class="bigbtn teal" data-act="view" data-v="reco">🧾 See documents</button>' : '') +
           (isDone ? '<button class="bigbtn grey" data-act="task-key-undo" data-k="' + esc(g.key) + '">↩ Reopen</button>'
                   : '<button class="bigbtn done" data-act="task-key-done" data-k="' + esc(g.key) + '">✓ Done</button>') +
         '</div></div>';
     }).join('') + '</div>';
+  }
+
+  // ---------- RECONCILIATION (task-system tasks with their documents) ----------
+  var RECO = null, RQ = '', RF = 'open';
+  var ERPC = {};                // document number -> ERP info, or null when ERP does not have it
+  var ERP_ERR = '', ERP_BUSY = false, DL = {};
+  function inr(n) { return n || n === 0 ? Number(n).toLocaleString('en-IN') : ''; }
+  function fullTime(ms) {
+    if (!ms) return '';
+    var d = new Date(ms);
+    return pad(d.getDate()) + '-' + pad(d.getMonth() + 1) + '-' + d.getFullYear() + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+  function loadReco() {
+    rpc('getWaReco', [], function (d) {
+      RECO = d;
+      renderReco();
+      if (VIEW === 'reco') erpLookupNext();
+    }, function (e) { if (!RECO) $('rlist').innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; });
+  }
+  function recoTask(key) { return RECO ? RECO.tasks.filter(function (t) { return t.key === key; })[0] : null; }
+  // Every document number of a task: its rows, then any of our numbers named in a note.
+  function recoDocs(t) {
+    var out = t.rows.map(function (r) { return r.doc; });
+    t.notes.forEach(function (n) { out = out.concat(n.docs); });
+    return out;
+  }
+  // The tasks on the chosen chip, each with the rows to show: all of them, or — when the search names a
+  // document or bill rather than the supplier — only the rows that match.
+  function recoVisible() {
+    if (!RECO) return [];
+    var q = RQ.toLowerCase(), has = function (s) { return String(s || '').toLowerCase().indexOf(q) !== -1; };
+    return RECO.tasks.filter(function (t) { return RF === 'done' ? !t.open : t.open; }).map(function (t) {
+      if (!q || has(t.supplier + ' ' + t.summary)) return { t: t, rows: t.rows, notes: t.notes };
+      return { t: t, rows: t.rows.filter(function (r) { return has(r.doc + ' ' + r.bill + ' ' + r.note + ' ' + r.issue); }),
+               notes: t.notes.filter(function (n) { return has(n.text); }) };
+    }).filter(function (v) { return !q || v.rows.length || v.notes.length; });
+  }
+  // Looks the documents up in ERP a few at a time (the server caches the answers).
+  function erpLookupNext() {
+    if (ERP_BUSY || ERP_ERR || !RECO || !RECO.erp.connected) return;
+    var want = [];
+    RECO.tasks.forEach(function (t) {
+      if (t.open || RF === 'done') recoDocs(t).forEach(function (d) { if (!(d in ERPC) && want.indexOf(d) === -1) want.push(d); });
+    });
+    if (!want.length) return;
+    var batch = want.slice(0, 8);
+    ERP_BUSY = true;
+    rpc('findErpDocs', [batch], function (res) {
+      ERP_BUSY = false;
+      batch.forEach(function (k) { ERPC[k] = res[k] || null; });
+      if (VIEW === 'reco') { renderReco(); erpLookupNext(); }
+    }, function (e) { ERP_BUSY = false; ERP_ERR = e.message; if (VIEW === 'reco') renderReco(); });
+  }
+  function erpCell(no) {
+    if (!RECO.erp.connected) return '<span class="meta">ERP not connected</span>';
+    var info = ERPC[no];
+    if (info === null) return '<span class="erp-miss">Not found in ERP</span>';
+    var btn = '<button class="btn sm pri" data-act="erp-pdf" data-no="' + esc(no) + '"' + (DL[no] ? ' disabled>Downloading…' : '>⬇ PDF') + '</button>';
+    if (!info) return '<div class="erpc">' + btn + (ERP_ERR ? '' : '<span class="meta">Checking ERP…</span>') + '</div>';
+    var slug = info.doctype.toLowerCase().replace(/ /g, '-');
+    return '<div class="erpc">' + btn +
+      '<a class="erp-link" target="_blank" rel="noopener" href="' + esc(RECO.erp.base + '/app/' + slug + '/' + encodeURIComponent(info.name)) +
+        '" title="Open ' + esc(info.name) + ' in ERP">' + esc(info.doctype) + (info.name !== no ? ' · ' + esc(info.name) : '') + ' ↗</a>' +
+      (info.status === 'Cancelled' ? '<span class="erp-warn cx">Cancelled</span>' : info.status === 'Draft' ? '<span class="erp-warn">Draft</span>' : '') +
+      '</div>';
+  }
+  function renderReco() {
+    if (!RECO) return;
+    var open = RECO.tasks.filter(function (t) { return t.open; });
+    $('b-reco').textContent = open.length || '';
+    if (VIEW !== 'reco') return;
+    $('rchips').innerHTML = [['open', 'Open', open.length], ['done', '✓ Done (last 7 days)', RECO.tasks.length - open.length]].map(function (ch) {
+      return '<button class="chip' + (RF === ch[0] ? ' active' : '') + '" data-act="rf" data-f="' + ch[0] + '">' + esc(ch[1]) + '<span class="c">' + ch[2] + '</span></button>';
+    }).join('');
+    $('rerp').innerHTML = !RECO.erp.connected
+      ? '<div class="banner amber">🔌 <b>ERP is not connected yet</b>, so documents cannot be downloaded. Add the GitHub secret <b>ERP_API_TOKEN</b> — ' +
+        'the ERPNext API key and secret written as <b>key:secret</b> (the same kind of key the PO Tracker uses) — then run <b>Actions → Deploy</b>.</div>'
+      : ERP_ERR ? '<div class="banner red">⚠️ ' + esc(ERP_ERR) + ' <a href="#" data-act="erp-retry">Try again</a></div>' : '';
+    var list = recoVisible();
+    var sup = {}, docs = 0, amt = 0, checked = 0, found = 0;
+    list.forEach(function (v) {
+      sup[v.t.supplier.toLowerCase()] = 1;
+      v.rows.forEach(function (r) { docs++; amt += r.amount || 0; });
+      recoDocs(v).forEach(function (d) { if (d in ERPC) { checked++; if (ERPC[d]) found++; } });
+    });
+    $('rcount').textContent = list.length + (list.length === 1 ? ' task' : ' tasks') + ' · ' + Object.keys(sup).length +
+      (Object.keys(sup).length === 1 ? ' supplier' : ' suppliers') + ' · ' + docs + (docs === 1 ? ' document' : ' documents') +
+      ' · ₹' + inr(amt) + (RECO.erp.connected && checked ? ' · ' + found + ' of ' + checked + ' found in ERP' : '');
+    if (!list.length) {
+      $('rlist').innerHTML = '<div class="empty">' + (RQ ? 'Nothing matches your search.' : RF === 'done' ? 'No reconciliation task was marked done in the last 7 days.'
+        : 'No open reconciliation tasks 🎉') + '</div>';
+      return;
+    }
+    var sr = 0;
+    var h = '<div class="rwrap"><table class="rt reco"><thead><tr><th>Sr No.</th><th>Supplier</th><th>Document No.</th><th>Date</th>' +
+      '<th class="num">Amount (₹)</th><th>Their bill no.</th><th>Issue</th><th>ERP document</th></tr></thead><tbody>';
+    list.forEach(function (v) {
+      var t = v.t;
+      h += '<tr class="rgrp' + (t.open ? '' : ' is-done') + '"><td colspan="8"><div class="rg"><div>' +
+          '<span class="rsup">' + esc(t.supplier || 'Task') + '</span>' + (t.summary ? ' — ' + esc(t.summary) : '') +
+          '<div class="meta">Received ' + fullTime(t.t) + (t.open ? '' : ' · ✓ Done ' + fullTime(t.doneAt)) + '</div></div>' +
+        '<div class="ract">' + (t.url ? '<a class="btn sm" target="_blank" rel="noopener" href="' + esc(t.url) + '">🔗 Open task</a>' : '') +
+          (t.open ? '<button class="btn sm rdone" data-act="reco-done" data-k="' + esc(t.key) + '">✓ Done</button>'
+                  : '<button class="btn sm" data-act="reco-undo" data-k="' + esc(t.key) + '">↩ Reopen</button>') +
+        '</div></div></td></tr>';
+      v.rows.forEach(function (r) {
+        sr++;
+        h += '<tr><td>' + sr + '</td><td>' + esc(t.supplier) + '</td><td><b>' + esc(r.doc) + '</b></td><td>' + esc(r.date) + '</td>' +
+          '<td class="num">' + inr(r.amount) + '</td><td>' + esc(r.bill) + '</td>' +
+          '<td class="wrapc">' + esc([r.issue, r.note].filter(Boolean).join(' — ')) + '</td><td>' + erpCell(r.doc) + '</td></tr>';
+      });
+      v.notes.forEach(function (n) {
+        sr++;
+        h += '<tr class="rnote"><td>' + sr + '</td><td>' + esc(t.supplier) + '</td><td>' +
+          (n.docs.length ? n.docs.map(function (d) { return '<b>' + esc(d) + '</b>'; }).join('<br>') : '—') + '</td>' +
+          '<td colspan="4" class="wrapc">' + esc(n.text) + '</td><td>' + n.docs.map(erpCell).join('') + '</td></tr>';
+      });
+      if (!t.rows.length && !t.notes.length) h += '<tr><td colspan="8" class="meta">No documents are listed in this task.</td></tr>';
+    });
+    $('rlist').innerHTML = h + '</tbody></table></div>';
+  }
+  // The PDF comes through the Worker (which holds the ERP key) and is saved straight away.
+  function erpDownload(no) {
+    if (DL[no]) return;
+    DL[no] = true; renderReco();
+    fetch('/erp/pdf?no=' + encodeURIComponent(no), { credentials: 'same-origin' }).then(function (res) {
+      if (res.status === 401) { location.replace('/?locked=1'); throw new Error('Please sign in again.'); }
+      if (!res.ok || (res.headers.get('content-type') || '').indexOf('application/pdf') === -1) {
+        return res.json().catch(function () { return {}; }).then(function (j) { throw new Error(j.error || 'The download failed (HTTP ' + res.status + ').'); });
+      }
+      var m = (res.headers.get('content-disposition') || '').match(/filename\*=UTF-8''([^;]+)/i);
+      var name = m ? decodeURIComponent(m[1]) : no + '.pdf';
+      return res.blob().then(function (b) {
+        var u = URL.createObjectURL(b), a = document.createElement('a');
+        a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(function () { URL.revokeObjectURL(u); }, 30000);
+        toast('⬇ Downloaded ' + name);
+      });
+    }).catch(function (e) { showError(e); }).then(function () { delete DL[no]; renderReco(); });
+  }
+  function csvCell(v) {
+    var s = String(v == null ? '' : v);
+    var lead = /^[=+\-@]/.test(s);
+    return /[",\n\r]/.test(s) || lead ? '"' + (lead ? "'" : '') + s.replace(/"/g, '""') + '"' : s;
+  }
+  function recoCsv() {
+    var rows = [['Sr No.', 'Supplier', 'Task', 'Document No.', 'Date', 'Amount (Rs)', 'Their bill no.', 'Issue',
+                 'ERP document type', 'ERP document', 'ERP status', 'Received', 'Status', 'Task link']];
+    var sr = 0;
+    recoVisible().forEach(function (v) {
+      var t = v.t;
+      var tail = function (doc) {
+        var e = ERPC[doc];
+        return [e ? e.doctype : e === null ? 'Not found in ERP' : '', e ? e.name : '', e ? e.status : '',
+                fullTime(t.t), t.open ? 'Open' : 'Done ' + fullTime(t.doneAt), t.url];
+      };
+      v.rows.forEach(function (r) {
+        rows.push([++sr, t.supplier, t.summary, r.doc, r.date, r.amount, r.bill, [r.issue, r.note].filter(Boolean).join(' — ')].concat(tail(r.doc)));
+      });
+      v.notes.forEach(function (n) {
+        rows.push([++sr, t.supplier, t.summary, n.docs.join(' '), '', '', '', n.text].concat(tail(n.docs[0] || '')));
+      });
+    });
+    if (rows.length < 2) { toast('Nothing to download'); return; }
+    var blob = new Blob(['﻿' + rows.map(function (r) { return r.map(csvCell).join(','); }).join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    var u = URL.createObjectURL(blob), a = document.createElement('a');
+    a.href = u; a.download = 'xp-reconciliation-' + todayKey() + '.csv'; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(u); }, 30000);
   }
 
   // ---------- OWNERS ----------
@@ -1697,7 +1900,8 @@
     VIEW = v;
     store('view', v);
     document.querySelectorAll('nav.views .tab').forEach(function (b) { b.classList.toggle('active', b.dataset.view === v); });
-    ['zaroori', 'tasks', 'owners', 'inbox', 'kaam', 'review', 'report', 'claude', 'setup'].forEach(function (k) { $('v-' + k).hidden = k !== v; });
+    ['zaroori', 'tasks', 'reco', 'owners', 'inbox', 'kaam', 'review', 'report', 'claude', 'setup'].forEach(function (k) { $('v-' + k).hidden = k !== v; });
+    if (v === 'reco') { if (RECO) renderReco(); loadReco(); }
     if (v === 'setup') loadSetup();
     if (v === 'report') loadReport();
     if (v === 'claude') loadClaude();
@@ -1742,6 +1946,15 @@
       }
     }
     else if (a === 'tf') { TF = el.dataset.f; renderTaskList(); }
+    else if (a === 'rf') { RF = el.dataset.f; renderReco(); erpLookupNext(); }
+    else if (a === 'erp-pdf') erpDownload(el.dataset.no);
+    else if (a === 'erp-retry') { ERP_ERR = ''; renderReco(); erpLookupNext(); }
+    else if (a === 'reco-done' || a === 'reco-undo') {
+      var rt = recoTask(el.dataset.k), rdone = a === 'reco-done';
+      if (rt) call('markWaFlags', [rdone ? rt.openIds : rt.doneIds, rdone], function () {
+        toast(rdone ? '✓ Marked done' : 'Reopened'); loadReco(); load(true);
+      }, el);
+    }
     else if (a === 'of') { OF = el.dataset.f; renderOwners(); }
     else if (a === 'task-key-done' || a === 'task-key-undo') {
       var key = el.dataset.k, done = a === 'task-key-done';
@@ -1817,6 +2030,8 @@
   $('rmonth').addEventListener('change', loadReport);
   $('zq').addEventListener('input', function () { ZQ = this.value.trim(); if (D) renderZaroori(); });
   $('tq').addEventListener('input', function () { TQ = this.value.trim(); if (D) renderTaskList(); });
+  $('rq').addEventListener('input', function () { RQ = this.value.trim(); renderReco(); });
+  $('recoCsv').addEventListener('click', recoCsv);
   $('oq').addEventListener('input', function () { OQ = this.value.trim(); if (D) renderOwners(); });
   $('q').addEventListener('input', function () {
     Q = this.value.trim(); HITS = null;

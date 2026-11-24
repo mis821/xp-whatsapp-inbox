@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { makeD1 } from './d1.mjs';
-import { makeWorker, dayKey, parseKaam, shortParty, briefText, flagReasons, ownerOf, taskKey, paymentChats } from '../src/app.js';
+import { makeWorker, dayKey, parseKaam, shortParty, briefText, flagReasons, ownerOf, taskKey, paymentChats, parseRecoTask, docKey } from '../src/app.js';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const ME_PN = '919999900000', ME_LID = '123450000000001';
@@ -601,6 +601,128 @@ await rpc('removePasskey', rsa.id);
 assert.equal((await signIn(rsa)).res.status, 401, 'removed fingerprint no longer signs in');
 env.DB.raw.prepare("UPDATE settings SET v = '{\"n\":0,\"t\":0}' WHERE k = 'login_fails'").run();
 await rpc('setWaLockMinutes', 15);
+
+// ---------- 🧾 Reconciliation tasks and ERP documents ----------
+{
+  const SHANKER = 'Hi Neeraj, one task for you —\nShanker: 5 debit notes not in their books (₹1,74,517), and their CN/26-27/018 (₹99,768) missing in their own books\n\n' +
+    'Our debit notes missing in their ledger:\nPRET-25-00168  22-Sep-25  ₹2,067  (their bill TI/25-26/01811)\nPRET-25-00226-1  13-Nov-25  ₹1,62,222  (their bill TI/25-26/02352)\n\n' +
+    'Their credit note CN/26-27/018 of 31-Jul-26, ₹99,768: we booked it on 23-Sep-26 (PRET-GJ-26270003), it is not in their ledger.\n\n' +
+    'When can you finish it? Put a date on the link.\nClose it there when done:\nhttps://tools.xpertpack.in/tasks/t/CX5IIOdhzdbjIgXb';
+  const SHIVANI = 'Hi Neeraj, one task for you —\nShivani Steels: 3 debit notes not in their books (₹23,827), send and get them booked\n\n' +
+    'Our debit notes missing in their ledger:\nPRET262700031  18-Jun-26  ₹5,499  (their bill 864)\nPRET262700087  06-Aug-26  ₹7,464  (their bill 1575)\n' +
+    'PRET-HR-26270013  26-Aug-26  ₹10,864  (their bill 1834)\n\nWhen can you finish it? Put a date on the link.\nClose it there when done:\nhttps://tools.xpertpack.in/tasks/t/NNAu7IN0nQuXqfa3';
+  const p = parseRecoTask(SHANKER);
+  assert.equal(p.supplier, 'Shanker');
+  assert.match(p.summary, /^5 debit notes not in their books/);
+  assert.deepEqual(p.rows.map(x => [x.doc, x.date, x.amount, x.bill]),
+    [['PRET-25-00168', '22-Sep-25', 2067, 'TI/25-26/01811'], ['PRET-25-00226-1', '13-Nov-25', 162222, 'TI/25-26/02352']]);
+  assert.equal(p.rows[0].issue, 'Our debit notes missing in their ledger');
+  assert.equal(p.notes.length, 1, 'the credit-note paragraph is a note, not a row');
+  assert.equal(p.notes[0].issue, '', 'a blank line ends the heading above it');
+  assert.deepEqual(p.notes[0].docs, ['PRET-GJ-26270003'], 'our number inside a note is picked up, their CN number is not');
+  assert.equal(p.url, 'https://tools.xpertpack.in/tasks/t/CX5IIOdhzdbjIgXb');
+  assert.equal(parseRecoTask('Hi Neeraj, one task for you — Jyoti Timbers: call about the rate list').supplier, 'Jyoti Timbers', 'heading on the same line');
+  assert.equal(parseRecoTask("Neeraj, 'Debit note to Shakti Gum' was due on 10 Oct. When will you close it?"), null, 'a plain reminder is not a reconciliation task');
+  assert.equal(docKey('PRET-2627-00031'), docKey('pret262700031'));
+
+  const BOT = '919000000001@s.whatsapp.net';
+  await post(m(BOT, { msg: { messageTimestamp: sec - 900, messageBody: SHANKER, message: { conversation: SHANKER } } }));
+  await post(m(BOT, { msg: { messageTimestamp: sec - 800, messageBody: SHIVANI, message: { conversation: SHIVANI } } }));
+  let rc = await rpc('getWaReco');
+  assert.equal(rc.erp.connected, false);
+  assert.deepEqual(rc.tasks.map(t => t.supplier), ['Shivani Steels', 'Shanker'], 'newest first');
+  const shiv = rc.tasks[0];
+  assert.equal(shiv.rows.length, 3);
+  assert.equal(shiv.rows[1].doc, 'PRET262700087', 'a no-break space between columns is fine');
+  assert.ok(shiv.open && shiv.openIds.length === 1 && !shiv.doneIds.length);
+  d = await rpc('getWaInbox', 2);
+  assert.equal(d.flags.filter(f => f.reasons.indexOf('tasksys') !== -1 && /one task for you/.test(f.text)).length, 2, 'the same messages stay on the Task List');
+  await assert.rejects(rpc('findErpDocs', ['PRET262700031']), /ERP is not connected yet/);
+  let pr = await req('/erp/pdf?no=PRET262700031', { headers: { cookie } });
+  assert.equal(pr.status, 503);
+  assert.match((await pr.json()).error, /ERP_API_TOKEN/);
+
+  // A fake ERPNext: names as ERP has them, the list API with "in" / "like" filters, and the PDF method.
+  const ERP = { 'Purchase Invoice': [{ name: 'PRET-2627-00031', supplier: 'Shivani Steels', posting_date: '2026-06-18', grand_total: 5499, docstatus: 1, is_return: 1, bill_no: '864' },
+                                     { name: 'PRET-HR-26270013', supplier: 'Shivani Steels', posting_date: '2026-08-26', grand_total: 10864, docstatus: 2, is_return: 1, bill_no: '1834' },
+                                     { name: 'PRET-25-00168', supplier: 'Shanker Traders', posting_date: '2025-09-22', grand_total: 2067, docstatus: 1, is_return: 1 }],
+                'Purchase Receipt': [], 'Journal Entry': [{ name: 'PRET-GJ-26270003', posting_date: '2026-09-23', docstatus: 1, total_debit: 99768, voucher_type: 'Debit Note', title: 'Shanker' }] };
+  const erpCalls = [];
+  let erpDown = 0;
+  const baseFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts = {}) => {
+    const u = new URL(String(url));
+    if (u.origin !== 'https://xpertpack.frappe.cloud') return baseFetch(url, opts);
+    erpCalls.push(u.pathname + u.search);
+    assert.equal(opts.headers.Authorization, 'token api-key:api-secret', 'the key goes to ERP as a token header');
+    if (erpDown) return new Response('{"exc_type":"AuthenticationError"}', { status: erpDown });
+    if (u.pathname.startsWith('/api/resource/')) {
+      const dt = decodeURIComponent(u.pathname.slice('/api/resource/'.length));
+      const [[field, op, val]] = JSON.parse(u.searchParams.get('filters'));
+      assert.equal(field, 'name');
+      const re = op === 'like' ? new RegExp('^' + val.split('%').map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*') + '$', 'i') : null;
+      const fields = JSON.parse(u.searchParams.get('fields'));
+      const data = (ERP[dt] || []).filter(x => op === 'in' ? val.includes(x.name) : re.test(x.name))
+        .map(x => Object.fromEntries(fields.map(f => [f, x[f]])));
+      return new Response(JSON.stringify({ data }));
+    }
+    if (u.pathname === '/api/method/frappe.utils.print_format.download_pdf') {
+      if (u.searchParams.get('name') === 'PRET-25-00168') return new Response('<html>Not permitted</html>', { status: 200 });
+      return new Response('%PDF-1.4 ' + u.searchParams.get('doctype') + ' ' + u.searchParams.get('name'), { headers: { 'content-type': 'application/pdf' } });
+    }
+    return new Response('{}', { status: 404 });
+  };
+  env.ERP_API_TOKEN = 'api-key:api-secret';
+  rc = await rpc('getWaReco');
+  assert.equal(rc.erp.connected, true);
+  const found = await rpc('findErpDocs', ['PRET262700031', 'PRET262700087', 'PRET-HR-26270013', 'PRET-GJ-26270003']);
+  assert.equal(found.PRET262700031.name, 'PRET-2627-00031', 'found although the message left out the dashes');
+  assert.equal(found.PRET262700031.doctype, 'Purchase Invoice');
+  assert.equal(found['PRET-HR-26270013'].status, 'Cancelled');
+  assert.equal(found['PRET-GJ-26270003'].doctype, 'Journal Entry', 'other document types are searched too');
+  assert.equal(found['PRET-GJ-26270003'].amount, 99768);
+  assert.equal(found.PRET262700087, null, 'not in ERP');
+  assert.ok(erpCalls.length <= 3 + 2 * 3, 'one exact call per type, then a pattern search only for numbers not found: ' + erpCalls.length);
+  erpCalls.length = 0;
+  await rpc('findErpDocs', ['PRET262700031', 'PRET262700087']);
+  assert.equal(erpCalls.length, 0, 'answers are cached');
+  assert.equal(Object.keys(await rpc('findErpDocs', Array.from({ length: 20 }, (_, i) => 'PRET-X-' + i))).length, 8, 'at most 8 numbers per call');
+
+  pr = await req('/erp/pdf?no=PRET262700031');
+  assert.equal(pr.status, 401, 'the PDF needs a signed-in session');
+  pr = await req('/erp/pdf?no=PRET262700031', { headers: { cookie } });
+  assert.equal(pr.status, 200);
+  assert.equal(pr.headers.get('content-type'), 'application/pdf');
+  assert.match(pr.headers.get('content-disposition'), /^attachment; filename="PRET-2627-00031 - Shivani Steels\.pdf"/);
+  assert.equal(await pr.text(), '%PDF-1.4 Purchase Invoice PRET-2627-00031');
+  pr = await req('/erp/pdf?no=PRET-GJ-26270003', { headers: { cookie } });
+  assert.match(await pr.text(), /^%PDF-1\.4 Journal Entry PRET-GJ-26270003/);
+  pr = await req('/erp/pdf?no=PRET262700087', { headers: { cookie } });
+  assert.equal(pr.status, 404);
+  assert.match((await pr.json()).error, /PRET262700087 was not found in ERP/);
+  pr = await req('/erp/pdf?no=PRET-25-00168', { headers: { cookie } });
+  assert.equal(pr.status, 502, 'an HTML page instead of a PDF is an error, not a broken download');
+  assert.match((await pr.json()).error, /did not return a PDF for PRET-25-00168/);
+  erpDown = 401;
+  await assert.rejects(rpc('findErpDocs', ['PRET-NEW-1']), /ERP refused the API key/);
+  assert.match((await (await req('/erp/pdf?no=PRET-NEW-2', { headers: { cookie } })).json()).error, /refused/);
+  erpDown = 0;
+
+  // Done here = done on the Task List; a new reminder for the same task opens it again.
+  await rpc('markWaFlags', shiv.openIds, true);
+  rc = await rpc('getWaReco');
+  const shivDone = rc.tasks.find(t => t.key === 'NNAu7IN0nQuXqfa3');
+  assert.ok(!shivDone.open && shivDone.doneAt && shivDone.doneIds.length === 1, 'listed under Done');
+  const REM = "Neeraj, 'Shivani Steels: 3 debit notes' was due on 20 Nov. When will you close it? https://tools.xpertpack.in/tasks/t/NNAu7IN0nQuXqfa3";
+  await post(m(BOT, { msg: { messageTimestamp: sec - 60, messageBody: REM, message: { conversation: REM } } }));
+  rc = await rpc('getWaReco');
+  const again = rc.tasks.find(t => t.key === 'NNAu7IN0nQuXqfa3');
+  assert.ok(again.open, 'reopened by the reminder');
+  assert.equal(again.rows.length, 3, 'documents still come from the task message, not the reminder');
+  await rpc('markWaFlags', again.openIds.concat(rc.tasks.find(t => t.supplier === 'Shanker').openIds), true);
+  globalThis.fetch = baseFetch;
+  delete env.ERP_API_TOKEN;
+}
 
 // speed: 30k messages over 260 chats, then one inbox load
 const ins = env.DB.raw.prepare('INSERT INTO messages (id, received_at, t, event, chat, is_group, from_me, sender, sender_name, type, text, tag) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');

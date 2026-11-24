@@ -1097,6 +1097,192 @@ async function cancelRequest(env, id) {
 }
 
 // ===================================================================
+// Reconciliation tasks (the 🧾 tab) and their ERP documents
+// ===================================================================
+// The task system assigns reconciliation work as one message per supplier:
+//   Hi Neeraj, one task for you —
+//   Shivani Steels: 5 debit notes not in their books (₹40,881), send and get them booked
+//
+//   Our debit notes missing in their ledger:
+//   PRET262700031  18-Jun-26  ₹5,499  (their bill 864)
+//   …
+//   Their credit note CN/26-27/018 of 31-Jul-26, ₹99,768: we booked it on 23-Sep-26 (PRET-GJ-26270003), …
+//
+//   When can you finish it? Put a date on the link.
+//   Close it there when done:
+//   https://tools.xpertpack.in/tasks/t/NNAu7IN0nQuXqfa3
+// The same messages also stay on the Task List; this tab lays the documents out as a table.
+const RECO_HEAD_RE = /\bone task for you\b/i;
+const RECO_ROW_RE = /^([A-Z][A-Z0-9]*(?:[-\/][A-Z0-9]+)*)\s+(\d{1,2}[-\/ .][A-Z]{3}[-\/ .]\d{2,4}|\d{1,2}[-\/.]\d{1,2}[-\/.]\d{2,4})\s+(?:₹|Rs\.?|INR)\s*(-?[\d,]+(?:\.\d+)?)\s*(?:\(([^)]*)\))?\s*$/i;
+const RECO_SKIP_RE = /^(?:when can you finish it|put a date on the link|close it there when done)|https?:\/\//i;
+const RECO_DONE_DAYS = 7;   // finished tasks stay on the tab (under "Done") this long
+
+export function parseRecoTask(text) {
+  const raw = String(text || '');
+  if (!RECO_HEAD_RE.test(raw)) return null;
+  const lines = raw.replace(/\r/g, '').split('\n').map(l => l.replace(/\s+/g, ' ').trim());
+  let i = lines.findIndex(l => RECO_HEAD_RE.test(l));
+  let head = lines[i].replace(/^.*?\bone task for you\b\s*[—–:,-]*\s*/i, '');
+  if (!head) { i++; while (i < lines.length && !lines[i]) i++; head = lines[i] || ''; }
+  const colon = head.indexOf(':');
+  const rows = [], notes = [];
+  let issue = '', inSection = 0;
+  for (let k = i + 1; k < lines.length; k++) {
+    const l = lines[k];
+    if (!l) { if (inSection) { issue = ''; inSection = 0; } continue; }   // a blank line closes a heading's list
+    if (RECO_SKIP_RE.test(l)) continue;
+    const m = l.match(RECO_ROW_RE);
+    if (m && /\d/.test(m[1])) {
+      const paren = (m[4] || '').trim();
+      const bill = (paren.match(/^their\s+(?:bill|invoice|inv)\b\.?\s*(?:no\.?|#)?\s*:?\s*(.+)$/i) || [])[1] || '';
+      rows.push({ doc: m[1], date: m[2], amount: Number(m[3].replace(/,/g, '')), bill: bill.trim(), note: bill ? '' : paren, issue });
+      inSection++;
+    } else if (/:$/.test(l)) {
+      issue = l.slice(0, -1).trim();          // a heading such as "Our debit notes missing in their ledger:"
+      inSection = 0;
+    } else {
+      notes.push({ text: l, issue, docs: [] });
+    }
+  }
+  // Our own document numbers named inside a note — "(PRET-GJ-26270003)" — can be downloaded too.
+  const ours = new Set(['PRET'].concat(rows.map(r => (r.doc.match(/^[A-Z]+/i) || [''])[0].toUpperCase())));
+  notes.forEach(n => {
+    n.docs = [...new Set((n.text.match(/\b[A-Z][A-Z0-9]*(?:[-\/][A-Z0-9]+)+\b|\b[A-Z]{2,}\d{5,}\b/gi) || [])
+      .filter(t => /\d/.test(t) && ours.has((t.match(/^[A-Z]+/i) || [''])[0].toUpperCase())))];
+  });
+  const url = ((raw.match(/https?:\/\/tools\.xpertpack\.in\/tasks\/\S+/i) || [])[0] || '').replace(/[).,]+$/, '');
+  return { supplier: (colon > 0 ? head.slice(0, colon) : head).trim(), summary: colon > 0 ? head.slice(colon + 1).trim() : '',
+           rows, notes, url };
+}
+
+// Every task-system task that came as "one task for you", newest first: open ones, and ones
+// finished in the last RECO_DONE_DAYS. Open/done is the same as on the Task List — a task is open
+// while any message about it (the task itself or a later reminder) is not marked done.
+async function getReco(env) {
+  const r = await env.DB.prepare(
+    'SELECT f.msg_id, f.chat, f.t, f.done_at, m.text, c.name AS chat_name FROM flags f JOIN messages m ON m.id = f.msg_id ' +
+    "LEFT JOIN chats c ON c.jid = f.chat WHERE f.reasons LIKE '%tasksys%' ORDER BY f.t DESC LIMIT 5000").all();
+  const by = new Map();
+  for (const f of r.results) {
+    const key = taskKey(f.text) || f.msg_id;
+    let g = by.get(key);
+    if (!g) by.set(key, g = { key, ids: [], open: [], doneAt: 0, detail: null });
+    g.ids.push(f.msg_id);
+    if (f.done_at) g.doneAt = Math.max(g.doneAt, f.done_at); else g.open.push(f.msg_id);
+    if (!g.detail) {
+      const p = parseRecoTask(f.text);
+      if (p) g.detail = Object.assign(p, { t: f.t, msgId: f.msg_id, chat: f.chat_name || prettyJid(f.chat) });
+    }
+  }
+  const since = Date.now() - RECO_DONE_DAYS * DAY;
+  const tasks = [...by.values()].filter(g => g.detail && (g.open.length || g.doneAt >= since)).map(g => Object.assign({
+    key: g.key, open: g.open.length > 0, doneAt: g.open.length ? 0 : g.doneAt,
+    openIds: g.open, doneIds: g.ids.filter(id => g.open.indexOf(id) === -1)
+  }, g.detail));
+  return { tasks, erp: { connected: !!erpToken(env), base: ERP_BASE } };
+}
+
+// ERPNext, read with an API key (the PO Tracker uses the same instance and the same kind of key).
+// Debit notes and other documents are looked up by the number written in the task message.
+const ERP_BASE = 'https://xpertpack.frappe.cloud';
+const ERP_TYPES = [
+  { dt: 'Purchase Invoice', fields: ['name', 'supplier', 'posting_date', 'grand_total', 'docstatus', 'is_return', 'bill_no'] },
+  { dt: 'Purchase Receipt', fields: ['name', 'supplier', 'posting_date', 'grand_total', 'docstatus', 'is_return'] },
+  { dt: 'Journal Entry', fields: ['name', 'posting_date', 'docstatus', 'total_debit', 'voucher_type', 'title'] }
+];
+const ERP_BATCH = 8;                                  // numbers per lookup — keeps each call well under the Worker's 50 sub-requests
+const ERP_FOUND_MS = 6 * 3600000, ERP_MISS_MS = 3600000;
+const ERP_NOT_SET = 'ERP is not connected yet. Add the GitHub secret ERP_API_TOKEN (the ERPNext API key and secret, written as key:secret) and run Deploy.';
+const ERP_REFUSED = 'ERP refused the API key. Please check the ERP_API_TOKEN secret (key:secret) and that its ERP user can read Purchase Invoices.';
+function erpToken(env) { return String(env.ERP_API_TOKEN || '').trim(); }
+// Letters and digits only, upper case: "PRET262700031" and "PRET-2627-00031" are the same document.
+export function docKey(s) { return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+
+async function erpList(env, t, filters, limit) {
+  const u = ERP_BASE + '/api/resource/' + encodeURIComponent(t.dt) + '?fields=' + encodeURIComponent(JSON.stringify(t.fields)) +
+    '&filters=' + encodeURIComponent(JSON.stringify(filters)) + '&limit_page_length=' + limit;
+  const res = await fetch(u, { headers: { Authorization: 'token ' + erpToken(env), Accept: 'application/json' } });
+  if (res.status === 401 || res.status === 403) { const e = new Error(ERP_REFUSED); e.refused = true; throw e; }
+  if (!res.ok) throw new Error('ERP did not answer (HTTP ' + res.status + '). Please try again in a minute.');
+  const j = await res.json().catch(() => ({}));
+  return Array.isArray(j.data) ? j.data : [];
+}
+function erpInfo(t, d) {
+  return { doctype: t.dt, name: String(d.name), supplier: d.supplier || d.title || '', date: d.posting_date || '',
+           amount: Number(d.grand_total != null ? d.grand_total : d.total_debit) || 0,
+           status: ['Draft', 'Submitted', 'Cancelled'][d.docstatus] || '', isReturn: !!d.is_return, bill: d.bill_no || '' };
+}
+
+// nos: document numbers as written in the messages → { number: info | null (not in ERP) }.
+export async function findErpDocs(env, nos) {
+  if (!erpToken(env)) throw new Error(ERP_NOT_SET);
+  const list = [...new Set((Array.isArray(nos) ? nos : [nos]).map(s => String(s || '').trim().slice(0, 60)).filter(Boolean))].slice(0, ERP_BATCH);
+  const out = {}, now = Date.now();
+  if (!list.length) return out;
+  const cached = await env.DB.prepare('SELECT q, found, info, checked FROM erp_docs WHERE q IN (SELECT value FROM json_each(?))')
+    .bind(JSON.stringify(list)).all();
+  for (const c of cached.results) if (now - c.checked < (c.found ? ERP_FOUND_MS : ERP_MISS_MS)) out[c.q] = c.found ? JSON.parse(c.info) : null;
+  const ask = list.filter(q => !(q in out));
+  if (!ask.length) return out;
+  let asked = 0, refused = 0;
+  const lookup = async (t, filters, limit) => {
+    asked++;
+    try { return await erpList(env, t, filters, limit); } catch (e) { if (e.refused) { refused++; return []; } throw e; }
+  };
+  // 1. The number exactly as written — one call per document type for the whole batch.
+  let todo = ask.slice();
+  for (const t of ERP_TYPES) {
+    if (!todo.length) break;
+    (await lookup(t, [['name', 'in', todo]], todo.length + 5)).forEach(d => {
+      const q = todo.find(x => docKey(x) === docKey(d.name));
+      if (q && !out[q]) out[q] = erpInfo(t, d);
+    });
+    todo = todo.filter(q => !out[q]);
+  }
+  // 2. Written without its dashes: any name with the same letters and digits in the same order.
+  for (const q of todo) {
+    const k = docKey(q);
+    if (k.length < 5) continue;
+    for (const t of ERP_TYPES) {
+      const hit = (await lookup(t, [['name', 'like', k.split('').join('%')]], 50)).find(d => docKey(d.name) === k);
+      if (hit) { out[q] = erpInfo(t, hit); break; }
+    }
+  }
+  if (asked && refused === asked) throw new Error(ERP_REFUSED);
+  await env.DB.batch(ask.map(q => env.DB.prepare('INSERT OR REPLACE INTO erp_docs (q, found, info, checked) VALUES (?, ?, ?, ?)')
+    .bind(q, out[q] ? 1 : 0, out[q] ? JSON.stringify(out[q]) : null, now)));
+  ask.forEach(q => { if (!out[q]) out[q] = null; });
+  return out;
+}
+
+// GET /erp/pdf?no=PRET262700031 — the document's PDF in its default print format, as a download.
+// The browser never talks to ERP itself; the key stays in the Worker.
+function pdfFileName(d) {
+  const clean = s => String(s || '').replace(/[\\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim();
+  const sup = clean(d.supplier).slice(0, 100);
+  return clean(d.name).replace(/ /g, '-') + (sup ? ' - ' + sup : '') + '.pdf';
+}
+async function erpPdf(env, no) {
+  const q = String(no || '').trim();
+  if (!q) return json({ error: 'The document number is missing.' }, 400);
+  if (!erpToken(env)) return json({ error: ERP_NOT_SET }, 503);
+  let d;
+  try { d = (await findErpDocs(env, [q]))[q]; } catch (e) { return json({ error: e.message }, 502); }
+  if (!d) return json({ error: q + ' was not found in ERP (searched Purchase Invoices, Purchase Receipts and Journal Entries).' }, 404);
+  const res = await fetch(ERP_BASE + '/api/method/frappe.utils.print_format.download_pdf?doctype=' + encodeURIComponent(d.doctype) +
+    '&name=' + encodeURIComponent(d.name) + '&no_letterhead=0', { headers: { Authorization: 'token ' + erpToken(env) } });
+  const pdf = new Uint8Array(await res.arrayBuffer());
+  // A permission or print-format failure comes back as an HTML page, not a PDF: check the %PDF start.
+  if (!res.ok || pdf.length < 4 || pdf[0] !== 0x25 || pdf[1] !== 0x50 || pdf[2] !== 0x44 || pdf[3] !== 0x46) {
+    return json({ error: 'ERP did not return a PDF for ' + d.name + (res.ok ? '' : ' (HTTP ' + res.status + ')') +
+      '. Please check its print format and the API user\'s permissions.' }, 502);
+  }
+  const file = pdfFileName(d);
+  return new Response(pdf, { headers: Object.assign({ 'Content-Type': 'application/pdf',
+    'Content-Disposition': 'attachment; filename="' + file.replace(/[^\x20-\x7e]/g, '_') + '"; filename*=UTF-8\'\'' + encodeURIComponent(file) }, SEC_HEADERS) });
+}
+
+// ===================================================================
 // Report for the directors — what came in, what was handled, how fast
 // ===================================================================
 function kindOf(reasons) {
@@ -1379,6 +1565,8 @@ const RPC = {
   getWaSecurity: (env) => getSecurity(env),
   setWaLockMinutes: async (env, a) => { await setSetting(env, 'lock_minutes', lockMinutes(a[0])); return lockMinutes(a[0]); },
   touchWa: () => true,
+  getWaReco: (env) => getReco(env),
+  findErpDocs: (env, a) => findErpDocs(env, a[0]),
   getClaudeRequests: (env) => getRequests(env),
   addClaudeRequest: (env, a) => addRequest(env, a[0], a[1]),
   cancelClaudeRequest: (env, a) => cancelRequest(env, a[0]),
@@ -1729,6 +1917,10 @@ export function makeWorker(inboxHtml, userScript, coreScript) {
           const token = await secretSetting(env, 'webhook_token');
           return new Response(String(userScript || '').replace('__ENDPOINT__', url.origin + '/webhook?token=' + token),
             { headers: Object.assign({ 'Content-Type': 'text/javascript; charset=utf-8' }, SEC_HEADERS) });
+        }
+        if (p === '/erp/pdf' && req.method === 'GET') {
+          if (!authed) return json({ error: 'Please sign in again.' }, 401);
+          return erpPdf(env, url.searchParams.get('no'));
         }
         if (p === '/export/payments.csv' && req.method === 'GET') {
           if (!authed) return loginPage(env, '');

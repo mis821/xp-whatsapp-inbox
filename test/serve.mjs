@@ -8,7 +8,22 @@ const ME_LID = '123450000000001', ME_PN = '919999900000';
 const groups = [['G1@g.us', 'XPP | Jyoti Timbers | Orders & Bills'], ['G2@g.us', 'Internal Payment Request'], ['G3@g.us', 'XP Store Ops'],
   ['G4@g.us', 'XPP | Maruti Paper'], ['G6@g.us', 'XPP | Shivani Steel'], ['G7@g.us', 'Daily holding vehicles update'],
   ['G8@g.us', 'XPP | Bhagwati Kripa paper (Reel)'], ['G9@g.us', 'Vendor payment']];
+// A made-up ERPNext for the 🧾 Reconciliation tab: a few debit notes, and a one-page PDF.
+const ERP = { 'Purchase Invoice': ['PRET-2627-00031', 'PRET-HR-26270013', 'PRET-25-00168', 'PRET-25-00170'], 'Purchase Receipt': [],
+  'Journal Entry': ['PRET-GJ-26270003'] };
+const PDF = '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj 3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 144]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF';
+function fakeErp(u) {
+  if (u.pathname.startsWith('/api/resource/')) {
+    const dt = decodeURIComponent(u.pathname.slice(14)), [[, op, val]] = JSON.parse(u.searchParams.get('filters'));
+    const re = new RegExp('^' + String(val).split('%').map(x => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*') + '$', 'i');
+    const data = (ERP[dt] || []).filter(n => op === 'in' ? val.includes(n) : re.test(n))
+      .map(name => ({ name, supplier: 'Demo Supplier', posting_date: '2026-06-18', grand_total: 5499, total_debit: 5499, docstatus: name.includes('HR') ? 2 : 1 }));
+    return new Response(JSON.stringify({ data }));
+  }
+  return new Response(PDF, { headers: { 'content-type': 'application/pdf' } });
+}
 globalThis.fetch = async (url, opts = {}) => {
+  if (String(url).startsWith('https://xpertpack.frappe.cloud')) return fakeErp(new URL(String(url)));
   const path = String(url).replace('https://www.wasenderapi.com/api', '');
   const j = d => new Response(JSON.stringify(d));
   if (path === '/user') return j({ data: { id: ME_PN + ':1@s.whatsapp.net', lid: ME_LID + ':1@lid', name: 'XP Purchase' } });
@@ -20,7 +35,7 @@ globalThis.fetch = async (url, opts = {}) => {
     { id: '917777700000@s.whatsapp.net', lid: null, notify: 'Mahesh Bhagwati' }] });
   return j({ success: true, data: {} });
 };
-const env = { DB: makeD1(ROOT + 'migrations'), WASENDER_API_KEY: 'k', DASHBOARD_PASSWORD: 'demo' };
+const env = { DB: makeD1(ROOT + 'migrations'), WASENDER_API_KEY: 'k', DASHBOARD_PASSWORD: 'demo', ERP_API_TOKEN: 'demo:demo' };
 const worker = makeWorker(fs.readFileSync(ROOT + 'src/inbox.html', 'utf8'), fs.readFileSync(ROOT + 'src/wa-sync.user.js', 'utf8'), fs.readFileSync(ROOT + 'src/wa-core.js', 'utf8'));
 const call = (path, init) => worker.fetch(new Request('http://localhost:8787' + path, init), env, { waitUntil() {} });
 const { syncNames } = await import('../src/app.js');
@@ -57,6 +72,15 @@ await call('/webhook?token=' + tok, { method: 'POST', body: JSON.stringify({ eve
   { id: 'OW2', t: Date.now() - 20 * 60000, chat: '918383828836@s.whatsapp.net', sender: '918383828836@s.whatsapp.net', sender_phone: '918383828836', sender_name: 'Raj Kumar Sir', text: 'Neeraj, Chennai plant ka PO status bhejo' }] } }) });
 await msg('917777700000@s.whatsapp.net', 'x', 15, 'Sir call kijiye urgent');
 await call('/webhook?token=' + tok, { method: 'POST', body: JSON.stringify({ event: 'call', data: { call: { id: 'C9', from: '917777700000@s.whatsapp.net', date: new Date(Date.now() - 14 * 60000).toISOString(), status: 'offer' } } }) });
+for (const [mins, id, sup, sum, rows, note] of [
+  [50, 'NNAu7IN0nQuXqfa3', 'Shivani Steel', '3 debit notes not in their books (₹24,827), send and get them booked',
+    ['PRET262700031  18-Jun-26  ₹5,499  (their bill 864)', 'PRET262700087  06-Aug-26  ₹7,464  (their bill 1575)', 'PRET-HR-26270013  26-Aug-26  ₹10,864  (their bill 1834)'], ''],
+  [48, 'CX5IIOdhzdbjIgXb', 'Maruti Paper', '2 debit notes not in their books (₹8,318), and their CN/26-27/018 (₹99,768) missing in their own books',
+    ['PRET-25-00168  22-Sep-25  ₹2,067  (their bill TI/25-26/01811)', 'PRET-25-00170  22-Sep-25  ₹6,251  (their bill TI/25-26/01629)'],
+    'Their credit note CN/26-27/018 of 31-Jul-26, ₹99,768: we booked it on 23-Sep-26 (PRET-GJ-26270003), it is not in their ledger.']]) {
+  await msg('919000000001@s.whatsapp.net', 'x', mins, 'Hi Neeraj, one task for you —\n' + sup + ': ' + sum + '\n\nOur debit notes missing in their ledger:\n' +
+    rows.join('\n') + (note ? '\n\n' + note : '') + '\n\nWhen can you finish it? Put a date on the link.\nClose it there when done:\nhttps://tools.xpertpack.in/tasks/t/' + id);
+}
 await msg(ME_LID + '@lid', 'me', 120, '#kaam Jyoti Timbers: payment kal ho jayega');
 await msg(ME_LID + '@lid', 'me', 110, '#kaam Shivani Steel - 2 coil short ka debit note aaj');
 http.createServer(async (req, res) => {

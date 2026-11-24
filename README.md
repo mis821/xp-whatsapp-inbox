@@ -7,6 +7,7 @@ Cloudflare Workers, with data in a Cloudflare D1 database (free plan).
 ## Tabs
 - **⭐ Priority** — only messages where you are mentioned in a group, where "Neeraj" is named (any common spelling: Neeraj, Niraj, Neraj, नीरज), or where a payment is raised. Items stay until marked **✓ Done**; reading or replying on WhatsApp does not clear them.
 - **📋 Task List** — daily reminders from the task system (tools.xpertpack.in), one card per task however many reminders arrive.
+- **🧾 Reconciliation** — the task system's "one task for you" reconciliation tasks as one table: Sr No., supplier, each document number (debit notes and so on) with its date, amount, the supplier's bill number and the issue. **⬇ PDF** downloads the document from ERP (ERPNext, `xpertpack.frappe.cloud`) in its default print format; the Worker searches Purchase Invoices, Purchase Receipts and Journal Entries, also when a number is written without its dashes. **⬇ Excel** downloads the rows shown. Marking a task ✓ Done here also marks it done on the Task List.
 - **👑 Owners** — every message from Anant Sir, Hitesh Sir and Raj Kumar Sir (numbers in `OWNERS` in `src/app.js`).
 - **✅ Work List** — commitments and follow-ups with due date and owner; can be sent to a team's WhatsApp group.
 - **🌆 Daily Review**, **💬 All Chats**, **📊 Report**, **⚙️ Setup**.
@@ -33,6 +34,7 @@ Write work requests for Claude on the dashboard and choose which Claude conversa
 1. **Cloudflare account (free):** https://dash.cloudflare.com/sign-up — open **Workers & Pages** once so the `*.workers.dev` address is created.
 2. **API token:** My Profile → API Tokens → Create Token → template **"Edit Cloudflare Workers"**, add **Account → D1 → Edit**. Note the **Account ID** shown on Workers & Pages.
 3. **GitHub secrets** (Settings → Secrets and variables → Actions): `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `WASENDER_API_KEY`, `DASHBOARD_PASSWORD`.
+   Optional: `ERP_API_TOKEN` — the ERPNext API key and secret written as `key:secret` (ERPNext → User → API Access → Generate Keys; the PO Tracker uses the same kind of key). Without it the 🧾 Reconciliation tab still lists the tasks, but cannot download PDFs.
 4. **Deploy:** Actions → Deploy → Run workflow. The summary shows the dashboard URL. Every push to `main` deploys automatically.
 5. **Messages from WhatsApp Web:** dashboard → ⚙️ Setup → install Tampermonkey, enable "Allow User Scripts", install the script, reload WhatsApp Web. A green "XP Inbox: live ✓" label confirms it is running.
 

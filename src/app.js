@@ -1210,8 +1210,10 @@ async function erpList(env, t, filters, limit) {
   const j = await res.json().catch(() => ({}));
   return Array.isArray(j.data) ? j.data : [];
 }
+// ERP's supplier names carry its code: "SHIVANI STEELS-S001477" → "SHIVANI STEELS".
+function plainSupplier(s) { return String(s || '').replace(/\s*-\s*S\d{3,}\s*$/i, '').trim(); }
 function erpInfo(t, d) {
-  return { doctype: t.dt, name: String(d.name), supplier: d.supplier || d.title || '', supplierName: d.supplier_name || '', date: d.posting_date || '',
+  return { doctype: t.dt, name: String(d.name), supplier: d.supplier || d.title || '', supplierName: plainSupplier(d.supplier_name || d.supplier || d.title), date: d.posting_date || '',
            amount: Number(d.grand_total != null ? d.grand_total : d.total_debit) || 0,
            status: ['Draft', 'Submitted', 'Cancelled'][d.docstatus] || '', isReturn: !!d.is_return, bill: d.bill_no || '' };
 }
@@ -1261,8 +1263,8 @@ export async function findErpDocs(env, nos) {
 // GET /erp/pdf?no=PRET262700031 — the document's PDF in its default print format, as a download.
 // The browser never talks to ERP itself; the key stays in the Worker.
 function pdfFileName(d) {
-  const clean = s => String(s || '').replace(/[\\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim();
-  const sup = clean(d.supplierName || d.supplier).slice(0, 100);
+  const clean = s => String(s || '').replace(/[\\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim().replace(/[.\s]+$/, '');
+  const sup = clean(plainSupplier(d.supplierName || d.supplier)).slice(0, 100);
   return clean(d.name).replace(/ /g, '-') + (sup ? ' - ' + sup : '') + '.pdf';
 }
 // The PDF in the document's default print format. A permission or print-format failure comes back

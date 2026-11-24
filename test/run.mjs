@@ -645,7 +645,7 @@ await rpc('setWaLockMinutes', 15);
   // A fake ERPNext: names as ERP has them, the list API with "in" / "like" filters, and the PDF method.
   const ERP = { 'Purchase Invoice': [{ name: 'PRET-2627-00031', supplier: 'Shivani Steels-S000123', supplier_name: 'Shivani Steels', posting_date: '2026-06-18', grand_total: 5499, docstatus: 1, is_return: 1, bill_no: '864' },
                                      { name: 'PRET-HR-26270013', supplier: 'Shivani Steels', posting_date: '2026-08-26', grand_total: 10864, docstatus: 2, is_return: 1, bill_no: '1834' },
-                                     { name: 'PRET-25-00168', supplier: 'Shanker Traders', posting_date: '2025-09-22', grand_total: 2067, docstatus: 1, is_return: 1 }],
+                                     { name: 'PRET-25-00168', supplier: 'Shanker Traders Pvt. Ltd.-S001208', supplier_name: 'Shanker Traders Pvt. Ltd.-S001208', posting_date: '2025-09-22', grand_total: 2067, docstatus: 1, is_return: 1 }],
                 'Purchase Receipt': [], 'Journal Entry': [{ name: 'PRET-GJ-26270003', posting_date: '2026-09-23', docstatus: 1, total_debit: 99768, voucher_type: 'Debit Note', title: 'Shanker' }] };
   const erpCalls = [], uploads = [];
   let erpDown = 0;
@@ -753,6 +753,9 @@ await rpc('setWaLockMinutes', 15);
   assert.equal(sent.at(-1).text, undefined, 'an empty message sends the PDF alone');
   assert.equal((await rpc('getDocSendInfo', 'PRET262700031', 'Shivani Steels')).group.jid, 'GPA@g.us');
   assert.equal((await rpc('getDocSendInfo', 'PRET-GJ-26270003', 'Shanker')).group, null, 'no group for Shanker in this inbox');
+  info = await rpc('getDocSendInfo', 'PRET-25-00168', 'Shanker');
+  assert.equal(info.file, 'PRET-25-00168 - Shanker Traders Pvt. Ltd.pdf', 'no supplier code or stray dot in the file name the supplier sees');
+  assert.equal(info.doc.supplierName, 'Shanker Traders Pvt. Ltd.');
 
   // Done here = done on the Task List; a new reminder for the same task opens it again.
   await rpc('markWaFlags', shiv.openIds, true);

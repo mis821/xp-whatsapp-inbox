@@ -272,7 +272,8 @@
   .btn.rdone { background: var(--green); border-color: var(--green); color: #fff; }
   .erpc { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
   .btn.send { background: var(--teal); border-color: var(--teal); color: #fff; }
-  .erp-sent { font-size: 11px; font-weight: 700; color: var(--green); white-space: nowrap; }
+  .erp-sent { font-size: 11px; font-weight: 800; color: #166534; background: #dcfce7; border: 1px solid #86efac; border-radius: 6px;
+              padding: 4px 8px; white-space: nowrap; cursor: default; }
   .erp-link { font-size: 11px; font-weight: 700; color: var(--brand); text-decoration: none; white-space: nowrap; }
   .erp-warn { font-size: 10px; font-weight: 800; color: #fff; background: var(--amber); border-radius: 4px; padding: 1px 5px; }
   .erp-warn.cx { background: var(--red); }
@@ -338,7 +339,8 @@
   <section id="v-reco" hidden>
     <p class="viewnote">Reconciliation tasks assigned by the task system ("one task for you"), one block per supplier with every document it names.
       <b>⬇ PDF</b> downloads that document straight from ERP; <b>📤 Send to group</b> sends it to the supplier's XPP group on WhatsApp after you check
-      the group and the message. A task marked <b>✓ Done</b> here is also done on the Task List.</p>
+      the group and the message. Each document is sent <b>once only</b> — after that its row shows <b>✓ Sent</b>.
+      A task marked <b>✓ Done</b> here is also done on the Task List.</p>
     <div class="toolbar">
       <input type="search" id="rq" placeholder="Search supplier, document number or bill number…">
       <button class="btn" id="recoCsv" title="Download the rows shown below">⬇ Excel</button>
@@ -984,6 +986,9 @@
     }, function (e) { if (!RECO) $('rlist').innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; });
   }
   function recoTask(key) { return RECO ? RECO.tasks.filter(function (t) { return t.key === key; })[0] : null; }
+  // Letters and digits only, upper case — the server keys sent documents the same way.
+  function docKeyC(s) { return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+  function sentOf(no) { return RECO && RECO.sends ? RECO.sends[docKeyC(no)] : null; }
   // Every document number of a task: its rows, then any of our numbers named in a note.
   function recoDocs(t) {
     var out = t.rows.map(function (r) { return r.doc; });
@@ -1022,11 +1027,11 @@
     var info = ERPC[no];
     if (info === null) return '<span class="erp-miss">Not found in ERP</span>';
     var btn = '<button class="btn sm pri" data-act="erp-pdf" data-no="' + esc(no) + '"' + (DL[no] ? ' disabled>Downloading…' : '>⬇ PDF') + '</button>';
-    var sent = (RECO.sends || {})[no];
-    // Cancelled and draft documents are never sent to a supplier.
-    var send = !info || (info.status !== 'Cancelled' && info.status !== 'Draft')
+    var sent = sentOf(no);
+    // Sent once = done: no second send. Cancelled and draft documents are never sent to a supplier.
+    var send = !sent && (!info || (info.status !== 'Cancelled' && info.status !== 'Draft'))
       ? '<button class="btn sm send" data-act="erp-send" data-no="' + esc(no) + '" data-k="' + esc(key) + '" title="Send this PDF to the supplier\'s WhatsApp group">📤 Send to group</button>' : '';
-    var sentTag = sent ? '<span class="erp-sent" title="Sent to ' + esc(sent.chatName) + ' on ' + esc(fullTime(sent.t)) + '">✓ Sent ' + esc(fmtTime(sent.t)) + '</span>' : '';
+    var sentTag = sent ? '<span class="erp-sent" title="Sent to ' + esc(sent.chatName) + ' on ' + esc(fullTime(sent.t)) + '">✓ Sent · ' + esc(fmtTime(sent.t)) + '</span>' : '';
     if (!info) return '<div class="erpc">' + btn + send + sentTag + (ERP_ERR ? '' : '<span class="meta">Checking ERP…</span>') + '</div>';
     var slug = info.doctype.toLowerCase().replace(/ /g, '-');
     return '<div class="erpc">' + btn + send +
@@ -1055,6 +1060,12 @@
     var row = t.rows.filter(function (r) { return r.doc === no; })[0];
     call('getDocSendInfo', [no, t.supplier], function (x) {
       ERPC[no] = x.doc;
+      RECO.sends = RECO.sends || {};
+      if (x.sent) {                       // sent meanwhile (another device): show it, never send twice
+        RECO.sends[docKeyC(no)] = x.sent; renderReco();
+        toast('✓ ' + no + ' was already sent to ' + x.sent.chatName + ' on ' + fullTime(x.sent.t));
+        return;
+      }
       var g = x.group, sup = x.doc.supplierName || x.doc.supplier || t.supplier;
       var hint = !g ? 'No WhatsApp group matched the supplier <b>' + esc(sup) + '</b> — please find and choose it.'
         : g.how === 'remembered' ? 'This is the group you used for this supplier before.'
@@ -1062,21 +1073,24 @@
         : 'Picked from the supplier name in ERP (<b>' + esc(sup) + '</b>) — please check it is the right group.';
       openModal('📤 Send ' + no + ' to the supplier',
         '<div class="quote">📄 <b>' + esc(x.file) + '</b><br>' + esc(x.doc.doctype) + ' ' + esc(x.doc.name) + ' · ERP supplier: ' + esc(sup) + '</div>' +
-        (x.sent ? '<div class="banner amber">⚠️ Already sent to <b>' + esc(x.sent.chatName) + '</b> on ' + esc(fullTime(x.sent.t)) + '.</div>' : '') +
         '<label>Find group</label><input type="text" id="n-find" placeholder="Type a name…">' +
         '<label>Send to group</label><select id="n-group">' + groupOptions('', g ? g.jid : '') + '</select>' +
         '<p class="hint">' + hint + '</p>' +
         '<label>Message with the PDF</label><textarea id="n-text" rows="8">' + esc(docCaption(t, row, x.doc)) + '</textarea>' +
-        '<p class="hint">The PDF goes to the group from the office number (through WaSender). The group you choose is remembered for this supplier.</p>',
+        '<p class="hint">The PDF goes to the group from the office number (through WaSender), once only — after that the row shows ✓ Sent. ' +
+          'The group you choose is remembered for this supplier.</p>',
         '📤 Send PDF', function (btn) {
           var jid = $('n-group').value, msg = $('n-text').value.trim();
           if (!jid) { $('modalErr').textContent = 'Please choose the supplier\'s group.'; return; }
           btn.disabled = true; btn.textContent = 'Sending…'; $('modalErr').textContent = '';
           rpc('sendErpDocToGroup', [{ no: no, jid: jid, caption: msg, supplier: t.supplier }], function (res) {
-            RECO.sends = RECO.sends || {};
-            RECO.sends[no] = { t: res.t, chatName: res.chatName };
+            RECO.sends[docKeyC(no)] = { t: res.t, chatName: res.chatName };
             closeModal(); toast('📤 ' + no + ' sent to ' + res.chatName); renderReco();
-          }, function (e) { btn.disabled = false; btn.textContent = '📤 Send PDF'; $('modalErr').textContent = e.message; });
+          }, function (e) {
+            $('modalErr').textContent = e.message;
+            if (/already sent|being sent/.test(e.message)) { btn.textContent = '✓ Already sent'; loadReco(); return; }
+            btn.disabled = false; btn.textContent = '📤 Send PDF';
+          });
         });
     }, el);
   }
@@ -1115,7 +1129,8 @@
       var t = v.t;
       h += '<tr class="rgrp' + (t.open ? '' : ' is-done') + '"><td colspan="8"><div class="rg"><div>' +
           '<span class="rsup">' + esc(t.supplier || 'Task') + '</span>' + (t.summary ? ' — ' + esc(t.summary) : '') +
-          '<div class="meta">Received ' + fullTime(t.t) + (t.open ? '' : ' · ✓ Done ' + fullTime(t.doneAt)) + '</div></div>' +
+          '<div class="meta">Received ' + fullTime(t.t) + (t.open ? '' : ' · ✓ Done ' + fullTime(t.doneAt)) +
+            (recoDocs(t).length ? ' · 📤 Sent to group: <b>' + recoDocs(t).filter(sentOf).length + ' of ' + recoDocs(t).length + '</b>' : '') + '</div></div>' +
         '<div class="ract">' + (t.url ? '<a class="btn sm" target="_blank" rel="noopener" href="' + esc(t.url) + '">🔗 Open task</a>' : '') +
           (t.open ? '<button class="btn sm rdone" data-act="reco-done" data-k="' + esc(t.key) + '">✓ Done</button>'
                   : '<button class="btn sm" data-act="reco-undo" data-k="' + esc(t.key) + '">↩ Reopen</button>') +
@@ -1167,7 +1182,7 @@
     recoVisible().forEach(function (v) {
       var t = v.t;
       var tail = function (doc) {
-        var e = ERPC[doc], sn = (RECO.sends || {})[doc];
+        var e = ERPC[doc], sn = sentOf(doc);
         return [e ? e.doctype : e === null ? 'Not found in ERP' : '', e ? e.name : '', e ? e.status : '',
                 sn ? sn.chatName : '', sn ? fullTime(sn.t) : '', fullTime(t.t), t.open ? 'Open' : 'Done ' + fullTime(t.doneAt), t.url];
       };

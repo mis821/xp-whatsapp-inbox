@@ -1179,8 +1179,8 @@ async function getReco(env) {
     key: g.key, open: g.open.length > 0, doneAt: g.open.length ? 0 : g.doneAt,
     openIds: g.open, doneIds: g.ids.filter(id => g.open.indexOf(id) === -1)
   }, g.detail));
-  const sends = {};
-  (await env.DB.prepare('SELECT doc, t, chat_name FROM doc_sends WHERE t > ? ORDER BY t').bind(Date.now() - 365 * DAY).all()).results
+  const sends = {};                                   // docKey(number) → when and where it was sent
+  (await env.DB.prepare('SELECT doc, t, chat_name FROM doc_sent WHERE t > 0').all()).results
     .forEach(x => { sends[x.doc] = { t: x.t, chatName: x.chat_name }; });
   return { tasks, sends, erp: { connected: !!erpToken(env), base: ERP_BASE } };
 }
@@ -1355,10 +1355,11 @@ async function docSendInfo(env, no, supplier) {
   const known = groups.find(g => g.jid === map[supplierKey(d, supplier)]);
   const group = known ? { jid: known.jid, name: String(known.name).trim(), count: 1, how: 'remembered' }
     : Object.assign(matchSupplierGroup([d.supplierName, d.supplier, supplier], groups) || {}, { how: 'matched' });
-  const sent = await env.DB.prepare('SELECT t, chat_name FROM doc_sends WHERE doc = ? ORDER BY t DESC LIMIT 1').bind(no).first();
+  const sent = await env.DB.prepare('SELECT t, chat_name FROM doc_sent WHERE doc = ? AND t > 0').bind(docKey(no)).first();
   return { doc: d, file: pdfFileName(d), group: group.jid ? group : null, sent: sent ? { t: sent.t, chatName: sent.chat_name } : null };
 }
 
+const SEND_CLAIM_MS = 3 * 60000;      // a send still unfinished after this long is taken to have failed
 // WaSender allows about one message every 5 seconds; when it says "too many", wait and try again.
 async function waRetry(fn) {
   for (let i = 0; ; i++) {
@@ -1391,13 +1392,31 @@ async function sendErpDoc(env, o) {
   const d = (await findErpDocs(env, [no]))[no];
   if (!d) throw new Error(no + ' was not found in ERP.');
   if (d.status === 'Cancelled' || d.status === 'Draft') throw new Error(d.name + ' is ' + d.status.toLowerCase() + ' in ERP, so it was not sent.');
-  const pdf = await erpPdfBytes(env, d);
+  const chatName = String(g.name || '').trim(), doc = docKey(no), claimedAt = Date.now();
+  // A document goes to a supplier once only. Claim it before sending, so two clicks or two devices
+  // cannot both send it; a claim left by a send that never finished lapses after SEND_CLAIM_MS.
+  const claim = await env.DB.prepare('INSERT INTO doc_sent (doc, t, claimed, chat_name) VALUES (?, 0, ?, ?) ' +
+    'ON CONFLICT(doc) DO UPDATE SET claimed = excluded.claimed, chat_name = excluded.chat_name WHERE doc_sent.t = 0 AND doc_sent.claimed < ?')
+    .bind(doc, claimedAt, chatName, claimedAt - SEND_CLAIM_MS).run();
+  if (!claim.meta.changes) {
+    const s = await env.DB.prepare('SELECT t, chat_name FROM doc_sent WHERE doc = ?').bind(doc).first();
+    throw new Error(s && s.t ? no + ' was already sent to ' + s.chat_name + ' on ' + istTime(s.t) + ', so it was not sent again.'
+      : no + ' is being sent right now — please wait a moment.');
+  }
   const file = pdfFileName(d);
-  const url = await waRetry(() => waUpload(env, pdf, 'application/pdf'));
-  await waRetry(() => wa(env, 'POST', '/send-message', Object.assign({ to: jid, documentUrl: url, fileName: file }, caption ? { text: caption } : {})));
-  const now = Date.now(), chatName = String(g.name || '').trim();
-  await env.DB.prepare('INSERT INTO doc_sends (id, t, doc, erp_name, doctype, file, chat, chat_name, supplier, caption) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .bind(randomHex(8), now, no, d.name, d.doctype, file, jid, chatName, d.supplier || String(o.supplier || ''), caption).run();
+  try {
+    const pdf = await erpPdfBytes(env, d);
+    const url = await waRetry(() => waUpload(env, pdf, 'application/pdf'));
+    await waRetry(() => wa(env, 'POST', '/send-message', Object.assign({ to: jid, documentUrl: url, fileName: file }, caption ? { text: caption } : {})));
+  } catch (e) {
+    await env.DB.prepare('DELETE FROM doc_sent WHERE doc = ? AND t = 0').bind(doc).run();   // not sent: it can be tried again
+    throw e;
+  }
+  const now = Date.now();
+  await env.DB.batch([
+    env.DB.prepare('UPDATE doc_sent SET t = ?, chat_name = ? WHERE doc = ?').bind(now, chatName, doc),
+    env.DB.prepare('INSERT INTO doc_sends (id, t, doc, erp_name, doctype, file, chat, chat_name, supplier, caption) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .bind(randomHex(8), now, no, d.name, d.doctype, file, jid, chatName, d.supplier || String(o.supplier || ''), caption)]);
   const key = supplierKey(d, o.supplier);
   if (key) {
     let map = {};

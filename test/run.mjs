@@ -747,12 +747,28 @@ await rpc('setWaLockMinutes', 15);
   assert.equal(rc.sends.PRET262700031.chatName, 'XPP | Shivani Steel', 'the row shows it was sent');
   info = await rpc('getDocSendInfo', 'PRET262700031', 'Shivani Steels');
   assert.equal(info.group.how, 'remembered');
-  assert.equal(info.sent.chatName, 'XPP | Shivani Steel', 'a second send is warned about');
-  // The group chosen for a supplier wins over the name match next time, for any of its documents.
-  await rpc('sendErpDocToGroup', { no: 'PRET262700031', jid: 'GPA@g.us', caption: '', supplier: 'Shivani Steels' });
-  assert.equal(sent.at(-1).text, undefined, 'an empty message sends the PDF alone');
-  assert.equal((await rpc('getDocSendInfo', 'PRET262700031', 'Shivani Steels')).group.jid, 'GPA@g.us');
+  assert.equal(info.sent.chatName, 'XPP | Shivani Steel', 'the send window knows it was sent');
+  // Sent once = done: never again — also when the number is written with dashes, or asked from another device.
+  const upBefore = uploads.length, sendBefore = sent.length;
+  await assert.rejects(rpc('sendErpDocToGroup', { no: 'PRET262700031', jid: 'GPA@g.us', caption: 'again' }),
+    /PRET262700031 was already sent to XPP \| Shivani Steel on \d{4}-\d\d-\d\d \d\d:\d\d, so it was not sent again/);
+  await assert.rejects(rpc('sendErpDocToGroup', { no: 'PRET-2627-00031', jid: 'GSS@g.us', caption: 'again' }), /already sent/, 'the same document written with dashes');
+  assert.deepEqual([uploads.length, sent.length], [upBefore, sendBefore], 'nothing went out the second time');
+  // A send that fails leaves the document free to try again; a claim left by a send that never finished lapses.
+  await assert.rejects(rpc('sendErpDocToGroup', { no: 'PRET-25-00168', jid: 'GSS@g.us' }), /did not return a PDF/);
+  await assert.rejects(rpc('sendErpDocToGroup', { no: 'PRET-25-00168', jid: 'GSS@g.us' }), /did not return a PDF/, 'not stuck as "being sent"');
+  env.DB.raw.prepare("INSERT INTO doc_sent (doc, t, claimed, chat_name) VALUES ('PRETGJ26270003', 0, ?, 'x')").run(Date.now());
+  await assert.rejects(rpc('sendErpDocToGroup', { no: 'PRET-GJ-26270003', jid: 'GPA@g.us' }), /being sent right now/);
+  env.DB.raw.prepare("UPDATE doc_sent SET claimed = ? WHERE doc = 'PRETGJ26270003'").run(Date.now() - 10 * 60000);
   assert.equal((await rpc('getDocSendInfo', 'PRET-GJ-26270003', 'Shanker')).group, null, 'no group for Shanker in this inbox');
+  // The group the user picks for a supplier is remembered; an empty message sends the PDF alone.
+  await rpc('sendErpDocToGroup', { no: 'PRET-GJ-26270003', jid: 'GPA@g.us', caption: '', supplier: 'Shanker' });
+  assert.equal(sent.at(-1).text, undefined, 'an empty message sends the PDF alone');
+  assert.equal(sent.at(-1).fileName, 'PRET-GJ-26270003 - Shanker.pdf');
+  info = await rpc('getDocSendInfo', 'PRET-GJ-26270003', 'Shanker');
+  assert.deepEqual([info.group.jid, info.group.how, info.sent.chatName], ['GPA@g.us', 'remembered', 'XPP | Paper']);
+  rc = await rpc('getWaReco');
+  assert.deepEqual(Object.keys(rc.sends).sort(), ['PRET262700031', 'PRETGJ26270003'], 'one entry per document sent; failed sends are not listed');
   info = await rpc('getDocSendInfo', 'PRET-25-00168', 'Shanker');
   assert.equal(info.file, 'PRET-25-00168 - Shanker Traders Pvt. Ltd.pdf', 'no supplier code or stray dot in the file name the supplier sees');
   assert.equal(info.doc.supplierName, 'Shanker Traders Pvt. Ltd.');

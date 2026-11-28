@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: list, update, sessions, groups, rename, addmember, queueadd, removemember, checkmember, admins, groupadmins, invitelinks, status, send, greet or erpcheck
+        description: list, update, sessions, groups, grouplist, rename, addmember, queueadd, removemember, checkmember, admins, groupadmins, invitelinks, status, send, greet or erpcheck
         required: true
         default: list
       id:

@@ -3,6 +3,8 @@
 //   ACTION=update ID=… STATUS=… REPLY=…    → set a request's status and Claude's note
 //   ACTION=sessions SESSIONS='[{"id","title","updated"}]' → the conversations offered on the dashboard
 //   ACTION=groups                          → every WhatsApp group name, as JSON (read only)
+//   ACTION=grouplist                       → every WhatsApp group with its JID, and ERP's supplier list (name and code),
+//                                            for a supplier ↔ group sheet (read only; nothing is sent to anyone)
 //   ACTION=rename GROUP=… NAME=…           → rename one WhatsApp group (exact current name) through WaSender
 //   ACTION=addmember GROUP='["name",…]' PHONE=… [PAUSE=seconds or seconds/batch/break] → add one number to each listed group (exact names) through WaSender
 //   ACTION=checkmember GROUP='["name",…]' PHONE=… → whether that number is in each listed group now (read only)
@@ -71,6 +73,22 @@ if (ACTION === 'list') {
 } else if (ACTION === 'groups') {
   const rows = d1("SELECT name FROM chats WHERE kind = 'group' AND name IS NOT NULL ORDER BY name COLLATE NOCASE");
   console.log('GROUPS_JSON ' + JSON.stringify(rows.map(r => r.name)));
+} else if (ACTION === 'grouplist') {
+  const groups = d1("SELECT jid, name FROM chats WHERE kind = 'group' AND name IS NOT NULL ORDER BY name COLLATE NOCASE");
+  for (let i = 0; i < groups.length; i += 100) console.log('GROUPLIST_JSON ' + JSON.stringify(groups.slice(i, i + 100).map(g => [g.jid, String(g.name).trim()])));
+  let remembered = {};
+  try { remembered = JSON.parse((d1("SELECT v FROM settings WHERE k = 'reco_groups'")[0] || {}).v || '{}'); } catch (e) { remembered = {}; }
+  console.log('RECO_GROUPS_JSON ' + JSON.stringify(remembered));     // supplier → group chosen on 📤 Send to group
+  const token = String(process.env.ERP_API_TOKEN || '').trim();
+  if (!token) { console.log('ERP_SUPPLIERS {"key":"not set"}'); process.exit(0); }
+  const res = await fetch('https://xpertpack.frappe.cloud/api/resource/Supplier?limit_page_length=0&fields=' +
+    encodeURIComponent(JSON.stringify(['name', 'supplier_name', 'disabled', 'supplier_group'])), { headers: { Authorization: 'token ' + token } });
+  if (!res.ok) { console.log('ERP_SUPPLIERS ' + JSON.stringify({ http: res.status })); process.exit(0); }
+  const list = (await res.json()).data || [];
+  console.log('ERP_SUPPLIER_COUNT ' + list.length);
+  for (let i = 0; i < list.length; i += 200) {
+    console.log('ERP_SUPPLIERS_JSON ' + JSON.stringify(list.slice(i, i + 200).map(x => [x.name, x.supplier_name || '', x.disabled ? 1 : 0, x.supplier_group || ''])));
+  }
 } else if (ACTION === 'rename') {
   const from = (process.env.GROUP || '').trim(), to = (process.env.NAME || '').trim();
   if (!from || !to) throw new Error('GROUP (current name) and NAME (new name) are both required');
@@ -368,5 +386,5 @@ if (ACTION === 'list') {
   try { console.log('WA_UPLOAD ' + JSON.stringify({ ok: true, host: new URL(await waUpload(process.env, blank, 'application/pdf')).host })); }
   catch (e) { console.log('WA_UPLOAD ' + JSON.stringify({ ok: false, error: e.message.slice(0, 200) })); }
 } else {
-  throw new Error('ACTION must be list, update, sessions, groups, rename, addmember, queueadd, removemember, checkmember, admins, groupadmins, invitelinks, status, send, greet or erpcheck');
+  throw new Error('ACTION must be list, update, sessions, groups, grouplist, rename, addmember, queueadd, removemember, checkmember, admins, groupadmins, invitelinks, status, send, greet or erpcheck');
 }
